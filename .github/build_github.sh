@@ -1,76 +1,176 @@
-# copy lc
-wget https://github.com/LiveContainer/dylibify/releases/download/1.0/dylibify
-chmod +x dylibify
-brew install ldid
+#!/bin/bash
+set -euo pipefail
 
-# move lc to working folder
-mv "$archive_path.xcarchive/Products/Applications" Payload
+echo "==> LiveContainer IPA packager"
+echo "    scheme=${scheme:-LiveContainer}"
+echo "    archive_path=${archive_path:-archive}"
 
-# temporarily move sidestore support framrwork to tmp before zip
-mkdir tmp
-mv Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework ./tmp
+SCHEME="${scheme:-LiveContainer}"
+ARCHIVE_PATH="${archive_path:-archive}"
+APP_PATH="${ARCHIVE_PATH}.xcarchive/Products/Applications"
 
-zip -r "$scheme.ipa" "Payload" -x "._*" -x ".DS_Store" -x "__MACOSX"
+if [ ! -d "$APP_PATH" ]; then
+  echo "ERROR: Archive products not found at $APP_PATH"
+  find "${ARCHIVE_PATH}.xcarchive" -maxdepth 4 -type d 2>/dev/null || true
+  exit 1
+fi
 
-mv ./tmp/SideStoreSupport.framework Payload/LiveContainer.app/Frameworks
+echo "==> Installing tools"
+command -v wget >/dev/null 2>&1 || brew install wget
+command -v ldid >/dev/null 2>&1 || brew install ldid
 
-# put sidestore related keys into Info.plist and settings bundle
-/usr/libexec/PlistBuddy -c 'Add :ALTAppGroups array' ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c 'Add :ALTAppGroups: string group.com.SideStore.SideStore' ./Payload/LiveContainer.app/Info.plist
+if [ ! -x ./dylibify ]; then
+  wget -q -O dylibify https://github.com/LiveContainer/dylibify/releases/download/1.0/dylibify
+  chmod +x dylibify
+fi
 
-/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1 dict" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLName string com.kdt.livecontainer.sidestoreurlscheme" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes array" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string sidestore" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:2 dict" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:2:CFBundleURLName string com.kdt.livecontainer.sidestorebackupurlscheme" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:2:CFBundleURLSchemes array" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:2:CFBundleURLSchemes:0 string sidestore-com.kdt.livecontainer" ./Payload/LiveContainer.app/Info.plist
+rm -rf Payload tmp
+mkdir -p Payload tmp
 
-/usr/libexec/PlistBuddy -c "Add :INIntentsSupported array" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :INIntentsSupported:0 string RefreshAllIntent" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :INIntentsSupported:1 string ViewAppIntent" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :NSUserActivityTypes array" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :NSUserActivityTypes:0 string RefreshAllIntent" ./Payload/LiveContainer.app/Info.plist
-/usr/libexec/PlistBuddy -c "Add :NSUserActivityTypes:1 string ViewAppIntent" ./Payload/LiveContainer.app/Info.plist
+echo "==> Copying app from archive"
+cp -R "$APP_PATH/." Payload/
 
-/usr/libexec/PlistBuddy -c "Add :PreferenceSpecifiers:3:Type string PSToggleSwitchSpecifier" ./Payload/LiveContainer.app/Settings.bundle/Root.plist
-/usr/libexec/PlistBuddy -c "Add :PreferenceSpecifiers:3:Title string Open SideStore" ./Payload/LiveContainer.app/Settings.bundle/Root.plist
-/usr/libexec/PlistBuddy -c "Add :PreferenceSpecifiers:3:Key string LCOpenSideStore" ./Payload/LiveContainer.app/Settings.bundle/Root.plist
-/usr/libexec/PlistBuddy -c "Add :PreferenceSpecifiers:3:DefaultValue bool false" ./Payload/LiveContainer.app/Settings.bundle/Root.plist
+if [ ! -d "Payload/LiveContainer.app" ]; then
+  echo "ERROR: LiveContainer.app not found in Payload/"
+  ls -la Payload/ || true
+  exit 1
+fi
 
-# download SideStore
-cd tmp
-wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa
-unzip SideStore.ipa
-cd ..
+# ---------- Standalone IPA (always) ----------
+echo "==> Building standalone ${SCHEME}.ipa"
 
-# SideStore
-mv ./tmp/Payload/SideStore.app ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework
-./dylibify ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore.dylib
-rm ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore
-mv ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore.dylib ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore
-ldid -S"" ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore
-cp ./.github/sidelc/LCAppInfo.plist ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/
+STANDALONE_HAD_SS=0
+if [ -d "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework" ]; then
+  STANDALONE_HAD_SS=1
+  mv "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework" ./tmp/
+fi
 
-# copy intents
-cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Intents.intentdefinition ./Payload/LiveContainer.app/
-cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/ViewApp.intentdefinition ./Payload/LiveContainer.app/
-cp -r ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents ./Payload/LiveContainer.app/Metadata.appintents
-sed -i '' 's/9SideStore20RefreshAllAppsIntentV/16SideStoreSupport20RefreshAllAppsIntentV/g' ./Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata
-sed -i '' 's/9SideStore26RefreshAllAppsWidgetIntentV/16SideStoreSupport26RefreshAllAppsWidgetIntentV/g' ./Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata
+rm -f "${SCHEME}.ipa"
+zip -r "${SCHEME}.ipa" "Payload" -x "._*" -x ".DS_Store" -x "__MACOSX"
+echo "    Created $(pwd)/${SCHEME}.ipa ($(du -h "${SCHEME}.ipa" | cut -f1))"
 
-# AltWidgetExtension
-mv ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/PlugIns/AltWidgetExtension.appex ./Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex
-/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.kdt.livecontainer.LiveWidget"  ./Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/Info.plist
-/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable LiveWidgetExtension"  ./Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/Info.plist
-mv ./Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/AltWidgetExtension ./Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/LiveWidgetExtension
+if [ "$STANDALONE_HAD_SS" = "1" ]; then
+  mv ./tmp/SideStoreSupport.framework "Payload/LiveContainer.app/Frameworks/"
+fi
 
-# Sign
-rm -r .zsign_cache
-find payloadlc/Payload -type d -name "_CodeSignature" -exec rm -r {} +
+# ---------- Optional: +SideStore ----------
+build_sidestore() {
+  echo "==> Building ${SCHEME}+SideStore.ipa"
 
-ldid -S.github/sidelc/LiveWidgetExtension_adhoc.xml ./Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/LiveWidgetExtension
+  /usr/libexec/PlistBuddy -c 'Add :ALTAppGroups array' ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c 'Add :ALTAppGroups:0 string group.com.SideStore.SideStore' ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
 
-# package
-zip -r "$scheme+SideStore.ipa" "Payload" -x "._*" -x ".DS_Store" -x "__MACOSX"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1 dict" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLName string com.kdt.livecontainer.sidestoreurlscheme" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes array" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string sidestore" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:2 dict" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:2:CFBundleURLName string com.kdt.livecontainer.sidestorebackupurlscheme" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:2:CFBundleURLSchemes array" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:2:CFBundleURLSchemes:0 string sidestore-com.kdt.livecontainer" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+
+  /usr/libexec/PlistBuddy -c "Add :INIntentsSupported array" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :INIntentsSupported:0 string RefreshAllIntent" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :INIntentsSupported:1 string ViewAppIntent" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :NSUserActivityTypes array" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :NSUserActivityTypes:0 string RefreshAllIntent" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :NSUserActivityTypes:1 string ViewAppIntent" ./Payload/LiveContainer.app/Info.plist 2>/dev/null || true
+
+  echo "    Downloading SideStore IPA..."
+  rm -rf tmp/Payload tmp/SideStore.ipa
+  mkdir -p tmp
+  wget -q -O tmp/SideStore.ipa \
+    "https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa" \
+    || wget -q -O tmp/SideStore.ipa \
+    "https://github.com/SideStore/SideStore/releases/latest/download/SideStore.ipa" \
+    || true
+
+  if [ ! -f tmp/SideStore.ipa ]; then
+    echo "WARNING: Could not download SideStore.ipa — skipping +SideStore"
+    return 1
+  fi
+
+  (cd tmp && unzip -qo SideStore.ipa)
+
+  if [ ! -d tmp/Payload/SideStore.app ]; then
+    echo "WARNING: SideStore.app missing — skipping +SideStore"
+    return 1
+  fi
+
+  mkdir -p Payload/LiveContainer.app/Frameworks
+  rm -rf Payload/LiveContainer.app/Frameworks/SideStoreApp.framework
+  mv tmp/Payload/SideStore.app Payload/LiveContainer.app/Frameworks/SideStoreApp.framework
+
+  SS_BIN="Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore"
+  if [ -f "$SS_BIN" ]; then
+    ./dylibify "$SS_BIN" "${SS_BIN}.dylib"
+    rm -f "$SS_BIN"
+    mv "${SS_BIN}.dylib" "$SS_BIN"
+    ldid -S"" "$SS_BIN" || true
+  fi
+
+  if [ -f .github/sidelc/LCAppInfo.plist ]; then
+    cp .github/sidelc/LCAppInfo.plist Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/
+  fi
+
+  if [ -f Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Intents.intentdefinition ]; then
+    cp Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Intents.intentdefinition Payload/LiveContainer.app/ || true
+  fi
+  if [ -f Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/ViewApp.intentdefinition ]; then
+    cp Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/ViewApp.intentdefinition Payload/LiveContainer.app/ || true
+  fi
+  if [ -d Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents ]; then
+    cp -R Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents Payload/LiveContainer.app/Metadata.appintents || true
+    if [ -f Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata ]; then
+      sed -i '' 's/9SideStore20RefreshAllAppsIntentV/16SideStoreSupport20RefreshAllAppsIntentV/g' \
+        Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata || true
+      sed -i '' 's/9SideStore26RefreshAllAppsWidgetIntentV/16SideStoreSupport26RefreshAllAppsWidgetIntentV/g' \
+        Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata || true
+    fi
+  fi
+
+  if [ -d Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/PlugIns/AltWidgetExtension.appex ]; then
+    mkdir -p Payload/LiveContainer.app/PlugIns
+    rm -rf Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex
+    mv Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/PlugIns/AltWidgetExtension.appex \
+       Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.kdt.livecontainer.LiveWidget" \
+      Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/Info.plist 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable LiveWidgetExtension" \
+      Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/Info.plist 2>/dev/null || true
+    if [ -f Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/AltWidgetExtension ]; then
+      mv Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/AltWidgetExtension \
+         Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/LiveWidgetExtension
+    fi
+    if [ -f .github/sidelc/LiveWidgetExtension_adhoc.xml ]; then
+      ldid -S.github/sidelc/LiveWidgetExtension_adhoc.xml \
+        Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/LiveWidgetExtension || true
+    fi
+  fi
+
+  find Payload -type d -name "_CodeSignature" -exec rm -rf {} + 2>/dev/null || true
+
+  rm -f "${SCHEME}+SideStore.ipa"
+  zip -r "${SCHEME}+SideStore.ipa" "Payload" -x "._*" -x ".DS_Store" -x "__MACOSX"
+  echo "    Created $(pwd)/${SCHEME}+SideStore.ipa ($(du -h "${SCHEME}+SideStore.ipa" | cut -f1))"
+}
+
+set +e
+build_sidestore
+SS_RC=$?
+set -e
+
+echo "==> Summary"
+ls -lh "${SCHEME}.ipa" 2>/dev/null || echo "MISSING ${SCHEME}.ipa"
+ls -lh "${SCHEME}+SideStore.ipa" 2>/dev/null || echo "MISSING ${SCHEME}+SideStore.ipa (optional)"
+
+if [ ! -f "${SCHEME}.ipa" ]; then
+  echo "ERROR: standalone IPA was not produced"
+  exit 1
+fi
+
+if [ $SS_RC -ne 0 ]; then
+  echo "WARNING: +SideStore packaging failed (rc=$SS_RC) — standalone IPA is still available"
+fi
+
+echo "==> Done"
