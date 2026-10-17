@@ -778,10 +778,23 @@ static LCControlAppURLHandling LCHandleControlAppURL(NSURL *url, NSString** modi
 }
 @end
 
-// MARK: - LiveContainer Extended: Double-tap status bar to return to LC (classic mode)
+// =============================================================================
+// LiveContainer Extended: Double-tap status bar → return to LiveContainer
+// (classic / guest process mode)
+// =============================================================================
 
-static NSTimeInterval LCGuestLastStatusBarTapTime = 0;
-static const NSTimeInterval LCGuestDoubleTapInterval = 0.35;
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 160000
+
+@interface UIStatusBarManager (LCPrivate)
+- (void)handleTapAction:(UIAction *)action;
+@end
+
+@interface UIApplication (LCPrivateStatusBar)
++ (Class)_statusBarManagerClass;
+@end
+
+static NSTimeInterval _lcGuestLastStatusBarTap = 0;
+static const NSTimeInterval _lcGuestDoubleTapWindow = 0.35;
 
 @interface LCGuestStatusBarManager : UIStatusBarManager
 @end
@@ -790,47 +803,50 @@ static const NSTimeInterval LCGuestDoubleTapInterval = 0.35;
 
 - (void)handleTapAction:(UIAction *)action {
     BOOL enabled = YES;
-    NSString *appGroupId = nil;
-    Class sharedUtilsClass = NSClassFromString(@"LCSharedUtils");
-    if ([sharedUtilsClass respondsToSelector:@selector(appGroupID)]) {
-        appGroupId = [sharedUtilsClass appGroupID];
+    Class sharedUtils = NSClassFromString(@"LCSharedUtils");
+    NSString *groupId = nil;
+    if ([sharedUtils respondsToSelector:@selector(appGroupID)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        groupId = [sharedUtils performSelector:@selector(appGroupID)];
+#pragma clang diagnostic pop
     }
-    NSUserDefaults *defaults = appGroupId ? [[NSUserDefaults alloc] initWithSuiteName:appGroupId] : NSUserDefaults.standardUserDefaults;
-    if ([defaults objectForKey:@"LCDoubleTapStatusBarToExit"] != nil) {
-        enabled = [defaults boolForKey:@"LCDoubleTapStatusBarToExit"];
+    NSUserDefaults *defs = groupId ? [[NSUserDefaults alloc] initWithSuiteName:groupId] : [NSUserDefaults standardUserDefaults];
+    if ([defs objectForKey:@"LCDoubleTapStatusBarToExit"] != nil) {
+        enabled = [defs boolForKey:@"LCDoubleTapStatusBarToExit"];
     }
-    
+
     if (enabled) {
-        NSTimeInterval now = [NSDate date].timeIntervalSince1970;
-        if (LCGuestLastStatusBarTapTime > 0 && (now - LCGuestLastStatusBarTapTime) <= LCGuestDoubleTapInterval) {
-            LCGuestLastStatusBarTapTime = 0;
-            if (@available(iOS 10.0, *)) {
-                UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
-                [gen impactOccurred];
-            }
-            if ([sharedUtilsClass respondsToSelector:@selector(launchToGuestAppWithClassicMode:)]) {
-                [sharedUtilsClass launchToGuestAppWithClassicMode:0];
+        NSTimeInterval now = CFAbsoluteTimeGetCurrent();
+        if (_lcGuestLastStatusBarTap > 0 && (now - _lcGuestLastStatusBarTap) <= _lcGuestDoubleTapWindow) {
+            _lcGuestLastStatusBarTap = 0;
+            UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+            [gen impactOccurred];
+            if ([sharedUtils respondsToSelector:@selector(launchToGuestAppWithClassicMode:)]) {
+                [sharedUtils launchToGuestAppWithClassicMode:0];
             }
             return;
         }
-        LCGuestLastStatusBarTapTime = now;
+        _lcGuestLastStatusBarTap = now;
     }
-    
+
+    // Forward single-tap to system
     [super handleTapAction:action];
 }
 
 @end
 
-@interface UIApplication (LCGuestStatusBar)
+@implementation UIApplication (LCGuestStatusBarOverride)
+
++ (Class)_statusBarManagerClass {
+    // Only override when we are inside a guest app
+    if (NSUserDefaults.lcGuestAppId != nil) {
+        return [LCGuestStatusBarManager class];
+    }
+    // Fallback: try calling original if possible, otherwise default
+    return [UIStatusBarManager class];
+}
+
 @end
 
-@implementation UIApplication (LCGuestStatusBar)
-+ (Class)_statusBarManagerClass {
-    if (@available(iOS 16.0, *)) {
-        if (NSUserDefaults.lcGuestAppId) {
-            return LCGuestStatusBarManager.class;
-        }
-    }
-    return UIStatusBarManager.class;
-}
-@end
+#endif // iOS 16+
