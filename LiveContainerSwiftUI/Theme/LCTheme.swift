@@ -2,13 +2,13 @@
 //  LCTheme.swift
 //  LiveContainerSwiftUI
 //
-//  LiveContainer Extended — Theme & Accent system (Cloudflare-inspired)
+//  LiveContainer Extended — Theme & Accent (Cloudflare-inspired)
 //
 
 import SwiftUI
 import UIKit
 
-// MARK: - Accent Color
+// MARK: - Accent presets
 
 enum LCAccentPreset: String, CaseIterable, Identifiable {
     case orange = "Orange"
@@ -24,7 +24,7 @@ enum LCAccentPreset: String, CaseIterable, Identifiable {
     
     var color: Color {
         switch self {
-        case .orange: return Color(red: 1.0, green: 0.42, blue: 0.21)      // Cloudflare-ish orange
+        case .orange: return Color(red: 1.00, green: 0.42, blue: 0.21)
         case .blue:   return Color(red: 0.20, green: 0.55, blue: 0.95)
         case .indigo: return Color(red: 0.35, green: 0.40, blue: 0.95)
         case .teal:   return Color(red: 0.10, green: 0.72, blue: 0.68)
@@ -34,61 +34,68 @@ enum LCAccentPreset: String, CaseIterable, Identifiable {
         case .red:    return Color(red: 0.92, green: 0.28, blue: 0.28)
         }
     }
-    
-    var uiColor: UIColor {
-        UIColor(color)
-    }
 }
 
-// MARK: - Theme Manager
+// MARK: - Theme
 
 final class LCTheme: ObservableObject {
     static let shared = LCTheme()
     
-    @AppStorage("LCAccentPreset", store: LCUtils.appGroupUserDefault)
-    var accentPresetRaw: String = LCAccentPreset.orange.rawValue
+    private let defaults: UserDefaults = LCUtils.appGroupUserDefault
     
-    @AppStorage("LCDoubleTapStatusBarToExit", store: LCUtils.appGroupUserDefault)
-    var doubleTapStatusBarToExit: Bool = true
+    @Published var accentPreset: LCAccentPreset {
+        didSet {
+            defaults.set(accentPreset.rawValue, forKey: "LCAccentPreset")
+        }
+    }
     
-    var accentPreset: LCAccentPreset {
-        get { LCAccentPreset(rawValue: accentPresetRaw) ?? .orange }
-        set { accentPresetRaw = newValue.rawValue }
+    @Published var doubleTapStatusBarToExit: Bool {
+        didSet {
+            defaults.set(doubleTapStatusBarToExit, forKey: "LCDoubleTapStatusBarToExit")
+        }
     }
     
     var accent: Color { accentPreset.color }
-    var accentUIColor: UIColor { accentPreset.uiColor }
     
-    // Cloudflare-inspired surface colors
     var cardBackground: Color {
         Color(UIColor { trait in
-            trait.userInterfaceStyle == .dark
-                ? UIColor(red: 0.11, green: 0.12, blue: 0.14, alpha: 1)   // near-black card
-                : UIColor(red: 0.98, green: 0.98, blue: 0.99, alpha: 1)   // almost white
+            if trait.userInterfaceStyle == .dark {
+                return UIColor(red: 0.11, green: 0.12, blue: 0.14, alpha: 1)
+            }
+            return UIColor(red: 0.98, green: 0.98, blue: 0.99, alpha: 1)
         })
     }
     
     var cardBorder: Color {
         Color(UIColor { trait in
-            trait.userInterfaceStyle == .dark
-                ? UIColor(white: 1, alpha: 0.08)
-                : UIColor(white: 0, alpha: 0.06)
+            if trait.userInterfaceStyle == .dark {
+                return UIColor(white: 1, alpha: 0.08)
+            }
+            return UIColor(white: 0, alpha: 0.06)
         })
     }
     
-    var secondaryText: Color {
-        Color(UIColor.secondaryLabel)
-    }
-    
+    var secondaryText: Color { Color(UIColor.secondaryLabel) }
     var success: Color { Color(red: 0.18, green: 0.72, blue: 0.40) }
     var warning: Color { Color(red: 0.95, green: 0.65, blue: 0.15) }
     var danger:  Color { Color(red: 0.92, green: 0.28, blue: 0.28) }
+    
+    private init() {
+        let raw = defaults.string(forKey: "LCAccentPreset") ?? LCAccentPreset.orange.rawValue
+        self.accentPreset = LCAccentPreset(rawValue: raw) ?? .orange
+        
+        if defaults.object(forKey: "LCDoubleTapStatusBarToExit") == nil {
+            self.doubleTapStatusBarToExit = true
+        } else {
+            self.doubleTapStatusBarToExit = defaults.bool(forKey: "LCDoubleTapStatusBarToExit")
+        }
+    }
 }
 
-// MARK: - View helpers
+// MARK: - Card modifier
 
 struct LCCardModifier: ViewModifier {
-    @ObservedObject var theme = LCTheme.shared
+    @ObservedObject private var theme = LCTheme.shared
     
     func body(content: Content) -> some View {
         content

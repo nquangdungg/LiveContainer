@@ -11,36 +11,34 @@
 #import "DecoratedAppSceneViewController.h"
 #import <UIKit/UIKit.h>
 
-// Double-tap detection
 static NSTimeInterval LCLastStatusBarTapTime = 0;
 static const NSTimeInterval LCDoubleTapInterval = 0.35;
 
 @implementation LCStatusBarManager
 
 - (void)handleTapAction:(UIAction *)action {
-    // Check user preference (default ON)
     BOOL enabled = YES;
     NSString *appGroupId = nil;
     Class sharedUtilsClass = NSClassFromString(@"LCSharedUtils");
     if ([sharedUtilsClass respondsToSelector:@selector(appGroupID)]) {
-        appGroupId = [sharedUtilsClass appGroupID];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        appGroupId = [sharedUtilsClass performSelector:@selector(appGroupID)];
+#pragma clang diagnostic pop
     }
-    NSUserDefaults *defaults = appGroupId ? [[NSUserDefaults alloc] initWithSuiteName:appGroupId] : nil;
-    if (defaults) {
-        if ([defaults objectForKey:@"LCDoubleTapStatusBarToExit"] != nil) {
-            enabled = [defaults boolForKey:@"LCDoubleTapStatusBarToExit"];
-        }
-    } else if ([NSUserDefaults.standardUserDefaults objectForKey:@"LCDoubleTapStatusBarToExit"] != nil) {
-        enabled = [NSUserDefaults.standardUserDefaults boolForKey:@"LCDoubleTapStatusBarToExit"];
+    NSUserDefaults *defaults = appGroupId
+        ? [[NSUserDefaults alloc] initWithSuiteName:appGroupId]
+        : [NSUserDefaults standardUserDefaults];
+    if ([defaults objectForKey:@"LCDoubleTapStatusBarToExit"] != nil) {
+        enabled = [defaults boolForKey:@"LCDoubleTapStatusBarToExit"];
     }
     
     if (enabled) {
-        NSTimeInterval now = [NSDate date].timeIntervalSince1970;
+        NSTimeInterval now = CFAbsoluteTimeGetCurrent();
         if (LCLastStatusBarTapTime > 0 && (now - LCLastStatusBarTapTime) <= LCDoubleTapInterval) {
-            // Double-tap detected
             LCLastStatusBarTapTime = 0;
             [self lc_handleDoubleTapExit];
-            return; // consume the event
+            return;
         }
         LCLastStatusBarTapTime = now;
     }
@@ -57,34 +55,24 @@ static const NSTimeInterval LCDoubleTapInterval = 0.35;
 }
 
 - (void)lc_handleDoubleTapExit {
-    // Haptic feedback
-    if (@available(iOS 10.0, *)) {
-        UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
-        [gen impactOccurred];
-    }
+    UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+    [gen impactOccurred];
     
-    // Prefer closing frontmost multitask window
+    // Native window mode
     if (self.nativeWindowViewController) {
-        if ([self.nativeWindowViewController respondsToSelector:@selector(terminate)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-            [self.nativeWindowViewController performSelector:@selector(terminate)];
-#pragma clang diagnostic pop
-        }
+        [self.nativeWindowViewController terminate];
         return;
     }
     
-    // Virtual window mode — find frontmost DecoratedAppSceneViewController and close it
+    // Virtual window mode — close frontmost decorated window
     VirtualWindowsHostView *host = MultitaskDockManager.shared.windowHostingView;
     if (host) {
         UIView *frontmostView = host.subviews.lastObject;
         if (frontmostView && !frontmostView.hidden) {
-            id decorated = frontmostView._viewDelegate;
-            if ([decorated respondsToSelector:@selector(closeWindow)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-                [decorated performSelector:@selector(closeWindow)];
-#pragma clang diagnostic pop
+            // Same pattern as VirtualWindowsHostView.m
+            DecoratedAppSceneViewController *decoratedVC = (id)frontmostView._viewDelegate;
+            if ([decoratedVC isKindOfClass:[DecoratedAppSceneViewController class]]) {
+                [decoratedVC closeWindow];
                 return;
             }
         }
