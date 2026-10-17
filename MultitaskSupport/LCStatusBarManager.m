@@ -2,14 +2,17 @@
 //  LCStatusBarManager.m
 //  LiveContainer
 //
-//  Extended: double-tap status bar to close current guest app / return to LC
+//  Extended: double-tap status bar closes current guest window / returns to LC
 //
 
 #import "LCStatusBarManager.h"
 #import "LiveContainerSwiftUI-Swift.h"
 #import "VirtualWindowsHostView.h"
 #import "DecoratedAppSceneViewController.h"
-#import <UIKit/UIKit.h>
+
+@interface UIView (LCStatusBarPrivate)
+- (UIViewController *)_viewDelegate;
+@end
 
 static NSTimeInterval LCLastStatusBarTapTime = 0;
 static const NSTimeInterval LCDoubleTapInterval = 0.35;
@@ -18,8 +21,8 @@ static const NSTimeInterval LCDoubleTapInterval = 0.35;
 
 - (void)handleTapAction:(UIAction *)action {
     BOOL enabled = YES;
-    NSString *appGroupId = nil;
     Class sharedUtilsClass = NSClassFromString(@"LCSharedUtils");
+    NSString *appGroupId = nil;
     if ([sharedUtilsClass respondsToSelector:@selector(appGroupID)]) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
@@ -32,7 +35,7 @@ static const NSTimeInterval LCDoubleTapInterval = 0.35;
     if ([defaults objectForKey:@"LCDoubleTapStatusBarToExit"] != nil) {
         enabled = [defaults boolForKey:@"LCDoubleTapStatusBarToExit"];
     }
-    
+
     if (enabled) {
         NSTimeInterval now = CFAbsoluteTimeGetCurrent();
         if (LCLastStatusBarTapTime > 0 && (now - LCLastStatusBarTapTime) <= LCDoubleTapInterval) {
@@ -42,8 +45,7 @@ static const NSTimeInterval LCDoubleTapInterval = 0.35;
         }
         LCLastStatusBarTapTime = now;
     }
-    
-    // Single tap — original behavior
+
     if (self.nativeWindowViewController) {
         [self.nativeWindowViewController handleStatusBarTapAction:action];
         return;
@@ -57,28 +59,35 @@ static const NSTimeInterval LCDoubleTapInterval = 0.35;
 - (void)lc_handleDoubleTapExit {
     UIImpactFeedbackGenerator *gen = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
     [gen impactOccurred];
-    
-    // Native window mode
+
     if (self.nativeWindowViewController) {
         [self.nativeWindowViewController terminate];
         return;
     }
-    
-    // Virtual window mode — close frontmost decorated window
+
     VirtualWindowsHostView *host = MultitaskDockManager.shared.windowHostingView;
     if (host) {
         UIView *frontmostView = host.subviews.lastObject;
         if (frontmostView && !frontmostView.hidden) {
-            // Same pattern as VirtualWindowsHostView.m
-            DecoratedAppSceneViewController *decoratedVC = (id)frontmostView._viewDelegate;
-            if ([decoratedVC isKindOfClass:[DecoratedAppSceneViewController class]]) {
-                [decoratedVC closeWindow];
+            id decorated = [frontmostView _viewDelegate];
+            // closeWindow is private to the .m — call via performSelector
+            if (decorated && [decorated respondsToSelector:@selector(closeWindow)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                [decorated performSelector:@selector(closeWindow)];
+#pragma clang diagnostic pop
                 return;
+            }
+            if ([decorated isKindOfClass:[DecoratedAppSceneViewController class]]) {
+                AppSceneViewController *sceneVC = [(DecoratedAppSceneViewController *)decorated appSceneVC];
+                if (sceneVC) {
+                    [sceneVC terminate];
+                    return;
+                }
             }
         }
     }
-    
-    // Fallback
+
     Class sharedUtils = NSClassFromString(@"LCSharedUtils");
     if ([sharedUtils respondsToSelector:@selector(launchToGuestAppWithClassicMode:)]) {
         [sharedUtils launchToGuestAppWithClassicMode:0];
@@ -87,12 +96,12 @@ static const NSTimeInterval LCDoubleTapInterval = 0.35;
 
 @end
 
-@implementation UIApplication(LiveContainer)
+@implementation UIApplication (LiveContainer)
 + (Class)_statusBarManagerClass {
     if (@available(iOS 16.0, *)) {
-        return LCStatusBarManager.class;
+        return [LCStatusBarManager class];
     } else {
-        return UIStatusBarManager.class;
+        return [UIStatusBarManager class];
     }
 }
 @end
