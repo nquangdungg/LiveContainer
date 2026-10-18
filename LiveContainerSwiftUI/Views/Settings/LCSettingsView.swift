@@ -87,7 +87,7 @@ struct LCSettingsView: View {
                     LCChromeHeader(
                         title: "Settings",
                         accentWord: "Extended",
-                        subtitle: "Signing · appearance · runtime"
+                        subtitle: "v\(extendedVersionString) · Signing · Appearance · Runtime"
                     )
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
@@ -126,7 +126,7 @@ struct LCSettingsView: View {
                         }
 
                     } header: {
-                        Text("lc.settings.jitLess".loc)
+                        Text("Signing & Certificate")
                     } footer: {
                         Text("lc.settings.jitLessDesc".loc)
                     }
@@ -359,55 +359,102 @@ struct LCSettingsView: View {
                     }
                 }
                 
+                // MARK: About — LiveContainer Extended
                 Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            Text("LiveContainer")
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
-                            Text("Extended")
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundStyle(theme.accent)
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(alignment: .center, spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(theme.accent.opacity(0.15))
+                                    .frame(width: 52, height: 52)
+                                Image(systemName: "shippingbox.fill")
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(theme.accent)
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Text("LiveContainer")
+                                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                                    Text("Extended")
+                                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                                        .foregroundStyle(theme.accent)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 2)
+                                        .background(theme.accent.opacity(0.12))
+                                        .clipShape(Capsule())
+                                }
+                                Text("Version \(extendedVersionString)")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(theme.accent)
+                                Text("An extended implementation of LiveContainer")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        Text("An extended implementation of LiveContainer")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                    
-                    HStack {
-                        Image(systemName: "person.crop.circle.fill")
-                            .foregroundStyle(theme.accent)
-                        Button("Nguyen Quang Dung") {
+                        
+                        Divider()
+                        
+                        Button {
                             openLeadDeveloperGitHub()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.system(size: 28))
+                                    .foregroundStyle(theme.accent)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Nguyen Quang Dung")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(.primary)
+                                    Text("Lead Developer · Engineering")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.up.right.circle.fill")
+                                    .foregroundStyle(theme.accent)
+                            }
                         }
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
                     }
+                    .padding(.vertical, 8)
                 } header: {
-                    Text("LiveContainer Extended")
+                    Text("About")
                 } footer: {
-                    Text("Lead Developer · Development & Engineering")
+                    Text("Version follows GitHub Releases (SemVer). Tap the lead developer to open GitHub.")
                 }
                 
                 Section {
-                    HStack {
-                        Image("GitHub")
-                        Button("LiveContainer/LiveContainer") {
-                            openGitHub()
+                    Button { openGitHub() } label: {
+                        HStack {
+                            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                                .foregroundStyle(theme.accent)
+                            Text("LiveContainer (original)")
+                            Spacer()
+                            Text("GitHub")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    HStack {
-                        Image("Twitter")
-                        Button("khanhduytran0") {
-                            openTwitter()
+                    Button { openTwitter() } label: {
+                        HStack {
+                            Image(systemName: "at")
+                                .foregroundStyle(theme.accent)
+                            Text("khanhduytran0")
+                            Spacer()
+                            Text("X / Twitter")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    HStack {
-                        Image("GitHub")
-                        Button("Huge_Black") {
-                            openGitHub2()
+                    Button { openGitHub2() } label: {
+                        HStack {
+                            Image(systemName: "person.fill")
+                                .foregroundStyle(theme.accent)
+                            Text("Huge_Black")
+                            Spacer()
+                            Text("GitHub")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 } header: {
@@ -416,16 +463,17 @@ struct LCSettingsView: View {
                     Text("Based on LiveContainer — original authors & contributors.\n\n" + "lc.settings.warning".loc)
                 }
                 
-                VStack{
+                Section {
                     Text(LCUtils.getVersionInfo())
-                        .foregroundStyle(.gray)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 6)
                         .onTapGesture(count: 5) {
                             sharedModel.developerMode = true
                         }
                 }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                    .background(Color(UIColor.systemGroupedBackground))
-                    .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
                 
                 if sharedModel.developerMode {
                     Section {

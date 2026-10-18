@@ -7,10 +7,19 @@ on:
   workflow_dispatch:
     inputs:
       create_release:
-        description: "Also publish IPAs to GitHub Release (tag: nightly)"
+        description: "Publish GitHub Release (semver bump)"
         type: boolean
         required: false
         default: true
+      version_bump:
+        description: "Semver bump type"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - none
+        default: patch
 
 jobs:
   build:
@@ -21,6 +30,7 @@ jobs:
       archive_path: archive
     outputs:
       has_sidestore: ${{ steps.pack.outputs.has_sidestore }}
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Select Xcode
@@ -32,6 +42,47 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
+
+      - name: Resolve version (semver)
+        id: version
+        run: |
+          set -e
+          BASE="4.1.8"
+          if [ -f VERSION ]; then
+            BASE=$(tr -d '[:space:]' < VERSION)
+          fi
+          # Prefer latest semver tag vX.Y.Z if present
+          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1 || true)
+          if [ -n "$LATEST_TAG" ]; then
+            BASE="${LATEST_TAG#v}"
+          fi
+          BUMP="${{ github.event.inputs.version_bump }}"
+          if [ -z "$BUMP" ]; then BUMP="patch"; fi
+          # PR: never bump, just build BASE
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BUMP="none"
+          fi
+          IFS=. read -r MAJ MIN PAT <<EOF
+          $BASE
+          EOF
+          MAJ=${MAJ:-4}; MIN=${MIN:-1}; PAT=${PAT:-8}
+          case "$BUMP" in
+            major) MAJ=$((MAJ+1)); MIN=0; PAT=0 ;;
+            minor) MIN=$((MIN+1)); PAT=0 ;;
+            patch) PAT=$((PAT+1)) ;;
+            none) ;;
+            *) PAT=$((PAT+1)) ;;
+          esac
+          VER="${MAJ}.${MIN}.${PAT}"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "$VER" > VERSION
+          echo "==> Version: $VER (bump=$BUMP, base was $BASE)"
+          # Inject into Info.plist if present
+          if [ -f LiveContainer/Info.plist ]; then
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VER" LiveContainer/Info.plist || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VER" LiveContainer/Info.plist || true
+          fi
 
       - name: Resolve project
         id: proj
@@ -47,7 +98,6 @@ jobs:
       - name: Archive
         run: |
           set -o pipefail
-          # Avoid FetchProvisioningProfilesOperation / invalid team AAAAA11111 on CI
           xcodebuild archive \
             -archivePath "$archive_path" \
             -scheme "$scheme" \
@@ -55,6 +105,8 @@ jobs:
             -sdk iphoneos \
             -arch arm64 \
             -configuration Release \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.version }}" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY=- \
             CODE_SIGNING_REQUIRED=NO \
@@ -70,7 +122,6 @@ jobs:
         run: |
           chmod +x .github/build_github.sh
           sh .github/build_github.sh
-          echo "==> Workspace IPAs:"
           ls -lh *.ipa || true
           if [ -f "${scheme}+SideStore.ipa" ]; then
             echo "has_sidestore=true" >> "$GITHUB_OUTPUT"
@@ -107,12 +158,10 @@ jobs:
   release:
     name: Publish Release
     needs: [build]
-    # Release when:
-    #  - push to main/master succeeds
-    #  - OR manual workflow_dispatch with create_release enabled (default true)
     if: |
       always() &&
       needs.build.result == 'success' &&
+      github.event_name != 'pull_request' &&
       (
         (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) ||
         (github.event_name == 'workflow_dispatch' && (inputs.create_release == true || inputs.create_release == 'true'))
@@ -121,6 +170,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout (for VERSION commit optional)
+        uses: actions/checkout@v4
+
       - name: Download LiveContainer.ipa
         uses: actions/download-artifact@v4
         with:
@@ -132,15 +184,13 @@ jobs:
         with:
           name: LiveContainer+SideStore.ipa
 
-      - name: Prepare release files
-        id: files
+      - name: Prepare release
+        id: prep
         run: |
+          VER="${{ needs.build.outputs.version }}"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VER" >> "$GITHUB_OUTPUT"
           ls -lah
-          if [ ! -f LiveContainer.ipa ]; then
-            echo "ERROR: LiveContainer.ipa missing after download"
-            exit 1
-          fi
-          # softprops fails if a listed file is missing — only include existing ones
           {
             echo "files<<EOF"
             echo "LiveContainer.ipa"
@@ -149,26 +199,30 @@ jobs:
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-          echo "Upload list:"
-          cat <<LIST
-          LiveContainer.ipa
-          $([ -f LiveContainer+SideStore.ipa ] && echo LiveContainer+SideStore.ipa)
-          LIST
 
-      - name: Create / update nightly release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: nightly
-          name: "LiveContainer Extended — Nightly"
-          prerelease: true
+          tag_name: ${{ steps.prep.outputs.tag }}
+          name: "LiveContainer Extended ${{ steps.prep.outputs.version }}"
+          prerelease: false
+          draft: false
           generate_release_notes: true
-          files: ${{ steps.files.outputs.files }}
+          files: ${{ steps.prep.outputs.files }}
           body: |
-            **LiveContainer Extended** nightly build
+            ## LiveContainer Extended ${{ steps.prep.outputs.version }}
 
+            **SemVer** release (see https://semver.org/)
+
+            - Tag: `v${{ steps.prep.outputs.version }}`
             - Commit: `${{ github.sha }}`
-            - Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-            Install via SideStore / TrollStore / iloader (ad-hoc signed).
+            ### Install
+            SideStore · TrollStore · iloader (ad-hoc signed IPA)
+
+            ### Credits
+            - **Lead Developer:** Nguyen Quang Dung
+            - Based on LiveContainer (original authors & contributors)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
