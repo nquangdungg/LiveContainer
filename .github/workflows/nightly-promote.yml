@@ -24,13 +24,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Install GitHub CLI
-        uses: cli/cli@v2
-
       - name: Run nightly promotion
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          chmod +x .github/promote_nightly.sh
-          bash .github/promote_nightly.sh
+          gh --version
+          bash .github/workflows/promote_nightly.sh

@@ -170,8 +170,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout (for VERSION commit optional)
+      - name: Checkout (for VERSION commit optional + tags)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # ensure tags and full history available for changelog
 
       - name: Download LiveContainer.ipa
         uses: actions/download-artifact@v4
@@ -184,45 +186,147 @@ jobs:
         with:
           name: LiveContainer+SideStore.ipa
 
-      - name: Prepare release
+      - name: Prepare release data (tag, changelog, files)
         id: prep
         run: |
+          set -euo pipefail
+
+          # Version from build job
           VER="${{ needs.build.outputs.version }}"
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VER" >> "$GITHUB_OUTPUT"
-          ls -lah
-          {
-            echo "files<<EOF"
-            echo "LiveContainer.ipa"
-            if [ -f "LiveContainer+SideStore.ipa" ]; then
-              echo "LiveContainer+SideStore.ipa"
+          if [ -z "$VER" ]; then
+            echo "No version found from build job; aborting release prep"
+            exit 1
+          fi
+
+          # Proposed tag
+          TAG="v${VER}"
+
+          # Ensure tags are fetched
+          git fetch --tags origin || true
+
+          # If tag already exists on remote, append timestamp suffix
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            SUFFIX=$(date -u +%Y%m%d%H%M)
+            TAG="${TAG}-${SUFFIX}"
+            echo "Tag collision: using fallback tag ${TAG}"
+          fi
+
+          # Determine previous semver tag for changelog base
+          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n '1p' || true)
+          if [ -n "$PREV_TAG" ]; then
+            echo "Previous tag: $PREV_TAG"
+            CHANGELOG=$(git log --no-merges --pretty=format:'- %s (%h)' "${PREV_TAG}"..HEAD || true)
+          else
+            echo "No previous semver tag found; using last 50 commits for changelog"
+            CHANGELOG=$(git log --no-merges -n 50 --pretty=format:'- %s (%h)' || true)
+          fi
+
+          # If changelog empty, fallback message
+          if [ -z "${CHANGELOG}" ]; then
+            CHANGELOG="- No user-facing commits found in history (or all merges)."
+          fi
+
+          # Compose release body in LiveContainer style
+          RELEASE_BODY=$(cat <<EOF
+          ## LiveContainer Extended ${VER}
+
+          **SemVer** release (see https://semver.org/)
+
+          - Tag: \`${TAG}\`
+          - Commit: \`${{ github.sha }}\`
+          - Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          ### Install
+
+          SideStore · TrollStore · iloader (ad-hoc signed IPA)
+
+          ### Changelog
+
+          ${CHANGELOG}
+
+          ---
+
+          ### Credits
+
+          - **Lead Developer:** Nguyen Quang Dung
+          - Based on LiveContainer (original authors & contributors)
+          EOF
+          )
+
+          # Prepare files list for later upload
+          FILES=""
+          if [ -f "LiveContainer.ipa" ]; then
+            FILES="${FILES}LiveContainer.ipa"
+          fi
+          if [ -f "LiveContainer+SideStore.ipa" ]; then
+            if [ -n "${FILES}" ]; then
+              FILES="${FILES}\nLiveContainer+SideStore.ipa"
+            else
+              FILES="LiveContainer+SideStore.ipa"
             fi
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.prep.outputs.tag }}
-          name: "LiveContainer Extended ${{ steps.prep.outputs.version }}"
-          prerelease: false
-          draft: false
-          generate_release_notes: true
-          files: ${{ steps.prep.outputs.files }}
-          body: |
-            ## LiveContainer Extended ${{ steps.prep.outputs.version }}
+          # export outputs
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          # We export body via a file because of possible multiline issues
+          echo "${RELEASE_BODY}" > release_body.txt
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          if [ -n "${FILES}" ]; then
+            printf "%b\n" "${FILES}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          # Save body file path to outputs (the following step will use this)
+          echo "body_path=release_body.txt" >> "$GITHUB_OUTPUT"
 
-            **SemVer** release (see https://semver.org/)
-
-            - Tag: `v${{ steps.prep.outputs.version }}`
-            - Commit: `${{ github.sha }}`
-            - Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            ### Install
-            SideStore · TrollStore · iloader (ad-hoc signed IPA)
-
-            ### Credits
-            - **Lead Developer:** Nguyen Quang Dung
-            - Based on LiveContainer (original authors & contributors)
+      - name: Install gh (GitHub CLI) and login
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "$(uname)" == "Darwin" ]]; then
+            brew install gh || true
+          else
+            # Install gh on ubuntu
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt-get update
+            sudo apt-get install -y gh
+          fi
+          echo "${GITHUB_TOKEN}" | gh auth login --with-token
+
+      - name: Create GitHub Release (using gh)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.prep.outputs.tag }}"
+          VER="${{ steps.prep.outputs.version }}"
+          NOTES_FILE="${{ steps.prep.outputs.body_path }}"
+          FILES="${{ steps.prep.outputs.files }}"
+
+          # build assets array from newline-separated FILES
+          ASSETS=()
+          if [ -n "$FILES" ]; then
+            IFS=$'\n' read -r -a ASSETS <<< "$FILES"
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; updating notes and assets"
+            gh release edit "$TAG" --notes-file "$NOTES_FILE" || true
+            if [ "${#ASSETS[@]}" -gt 0 ]; then
+              for a in "${ASSETS[@]}"; do
+                if [ -f "$a" ]; then
+                  gh release upload "$TAG" "$a" --clobber || true
+                fi
+              done
+            fi
+          else
+            echo "Creating release $TAG"
+            if [ "${#ASSETS[@]}" -gt 0 ]; then
+              gh release create "$TAG" --title "LiveContainer Extended ${VER}" --notes-file "$NOTES_FILE" "${ASSETS[@]}" || true
+            else
+              gh release create "$TAG" --title "LiveContainer Extended ${VER}" --notes-file "$NOTES_FILE" || true
+            fi
+          fi
