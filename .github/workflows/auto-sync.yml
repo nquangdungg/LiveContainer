@@ -1,0 +1,36 @@
+name: Auto Sync Upstream
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # mỗi ngày 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install GitHub CLI
+        uses: cli/cli@v2
+
+      - name: Make auto-sync executable and run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x .github/auto_sync.sh
+          ./.github/auto_sync.sh
