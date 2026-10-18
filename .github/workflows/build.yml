@@ -224,7 +224,7 @@ jobs:
           )
           else
             TAG="v${VER}"
-            TITLE="LiveContainer Extended ${VER}"
+            TITLE="${VER}"
 
             if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
               SUFFIX=$(date -u +%Y%m%d%H%M)
@@ -232,39 +232,22 @@ jobs:
               echo "Tag collision: using fallback tag ${TAG}"
             fi
 
-            PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n '1p' || true)
-            if [ -n "$PREV_TAG" ]; then
-              CHANGELOG=$(git log --no-merges --pretty=format:'- %s (%h)' "${PREV_TAG}"..HEAD || true)
-            else
-              CHANGELOG=$(git log --no-merges -n 50 --pretty=format:'- %s (%h)' || true)
-            fi
-            if [ -z "${CHANGELOG}" ]; then
-              CHANGELOG="- No user-facing commits found in history (or all merges)."
-            fi
-
             RELEASE_BODY=$(cat <<EOF
-          ## LiveContainer Extended ${VER}
+          # LiveContainer ${VER}
 
-          **SemVer** release (see https://semver.org/)
+          > [!Warning]
+          > The standalone version requires **SideStore 0.6.2+** or **AltStore 2.2.1+** for installation.
+          > To install LiveContainer with built-in SideStore (`LiveContainer+SideStore.ipa`), please use [Impactor](https://github.com/khcrysalis/Impactor) or [iloader](https://github.com/nab138/iloader). See [our installation guide](https://livecontainer.github.io/docs/installation/lc_sidestore) for details.
 
-          - Tag: \`${TAG}\`
-          - Commit: \`${{ github.sha }}\`
-          - Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # New Features
 
-          ### Install
+          # Improvements
 
-          SideStore · TrollStore · iloader (ad-hoc signed IPA)
+          # Bug Fixes
 
-          ### Changelog
+          # Localization
 
-          ${CHANGELOG}
-
-          ---
-
-          ### Credits
-
-          - **Lead Developer:** Nguyen Quang Dung
-          - Based on LiveContainer (original authors & contributors)
+          # Credits
           EOF
           )
           fi
