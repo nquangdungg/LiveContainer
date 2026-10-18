@@ -7,10 +7,17 @@ on:
   workflow_dispatch:
     inputs:
       create_release:
-        description: "Publish GitHub Release (semver bump)"
+        description: "Publish a GitHub Release"
         type: boolean
         required: false
         default: true
+      release_channel:
+        description: "Release channel for manual runs"
+        type: choice
+        options:
+          - nightly
+          - stable
+        default: nightly
       version_bump:
         description: "Semver bump type"
         type: choice
@@ -59,8 +66,8 @@ jobs:
           fi
           BUMP="${{ github.event.inputs.version_bump }}"
           if [ -z "$BUMP" ]; then BUMP="patch"; fi
-          # PR: never bump, just build BASE
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # Pushes and nightly builds reuse the current version; stable dispatches can bump it.
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.release_channel }}" = "nightly" ]; then
             BUMP="none"
           fi
           IFS=. read -r MAJ MIN PAT <<EOF
@@ -198,36 +205,44 @@ jobs:
             exit 1
           fi
 
-          # Proposed tag
-          TAG="v${VER}"
+          CHANNEL="${{ inputs.release_channel }}"
+          if [ "${{ github.event_name }}" = "push" ] || [ -z "$CHANNEL" ]; then
+            CHANNEL="nightly"
+          fi
 
-          # Ensure tags are fetched
           git fetch --tags origin || true
+          if [ "$CHANNEL" = "nightly" ]; then
+            TAG="nightly"
+            TITLE="Nightly Release @ $(date -u +%Y%m%d)"
+            COMMIT_MSG=$(git log -1 --pretty=%s)
+            RELEASE_BODY=$(cat <<EOF
+          Commit: [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+          Message: ${COMMIT_MSG}
 
-          # If tag already exists on remote, append timestamp suffix
-          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
-            SUFFIX=$(date -u +%Y%m%d%H%M)
-            TAG="${TAG}-${SUFFIX}"
-            echo "Tag collision: using fallback tag ${TAG}"
-          fi
-
-          # Determine previous semver tag for changelog base
-          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n '1p' || true)
-          if [ -n "$PREV_TAG" ]; then
-            echo "Previous tag: $PREV_TAG"
-            CHANGELOG=$(git log --no-merges --pretty=format:'- %s (%h)' "${PREV_TAG}"..HEAD || true)
+          This is a nightly release [created automatically with GitHub Actions workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+          EOF
+          )
           else
-            echo "No previous semver tag found; using last 50 commits for changelog"
-            CHANGELOG=$(git log --no-merges -n 50 --pretty=format:'- %s (%h)' || true)
-          fi
+            TAG="v${VER}"
+            TITLE="LiveContainer Extended ${VER}"
 
-          # If changelog empty, fallback message
-          if [ -z "${CHANGELOG}" ]; then
-            CHANGELOG="- No user-facing commits found in history (or all merges)."
-          fi
+            if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+              SUFFIX=$(date -u +%Y%m%d%H%M)
+              TAG="${TAG}-${SUFFIX}"
+              echo "Tag collision: using fallback tag ${TAG}"
+            fi
 
-          # Compose release body in LiveContainer style
-          RELEASE_BODY=$(cat <<EOF
+            PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | sed -n '1p' || true)
+            if [ -n "$PREV_TAG" ]; then
+              CHANGELOG=$(git log --no-merges --pretty=format:'- %s (%h)' "${PREV_TAG}"..HEAD || true)
+            else
+              CHANGELOG=$(git log --no-merges -n 50 --pretty=format:'- %s (%h)' || true)
+            fi
+            if [ -z "${CHANGELOG}" ]; then
+              CHANGELOG="- No user-facing commits found in history (or all merges)."
+            fi
+
+            RELEASE_BODY=$(cat <<EOF
           ## LiveContainer Extended ${VER}
 
           **SemVer** release (see https://semver.org/)
@@ -252,6 +267,7 @@ jobs:
           - Based on LiveContainer (original authors & contributors)
           EOF
           )
+          fi
 
           # Prepare files list for later upload
           FILES=""
@@ -267,8 +283,10 @@ jobs:
           fi
 
           # export outputs
+          echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
           echo "version=${VER}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
           # We export body via a file because of possible multiline issues
           echo "${RELEASE_BODY}" > release_body.txt
           echo "files<<EOF" >> "$GITHUB_OUTPUT"
@@ -279,7 +297,7 @@ jobs:
           # Save body file path to outputs (the following step will use this)
           echo "body_path=release_body.txt" >> "$GITHUB_OUTPUT"
 
-      - name: Install gh (GitHub CLI) and login
+      - name: Install gh (GitHub CLI)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -294,15 +312,16 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y gh
           fi
-          echo "${GITHUB_TOKEN}" | gh auth login --with-token
+          gh --version
 
       - name: Create GitHub Release (using gh)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          CHANNEL="${{ steps.prep.outputs.channel }}"
           TAG="${{ steps.prep.outputs.tag }}"
-          VER="${{ steps.prep.outputs.version }}"
+          TITLE="${{ steps.prep.outputs.title }}"
           NOTES_FILE="${{ steps.prep.outputs.body_path }}"
           FILES="${{ steps.prep.outputs.files }}"
 
@@ -312,21 +331,38 @@ jobs:
             IFS=$'\n' read -r -a ASSETS <<< "$FILES"
           fi
 
+          if [ "${CHANNEL}" = "nightly" ]; then
+            git tag -f "$TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/${TAG}" --force
+          fi
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; updating notes and assets"
-            gh release edit "$TAG" --notes-file "$NOTES_FILE" || true
+            if [ "${CHANNEL}" = "nightly" ]; then
+              gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" --prerelease
+            else
+              gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE"
+            fi
             if [ "${#ASSETS[@]}" -gt 0 ]; then
               for a in "${ASSETS[@]}"; do
                 if [ -f "$a" ]; then
-                  gh release upload "$TAG" "$a" --clobber || true
+                  gh release upload "$TAG" "$a" --clobber
                 fi
               done
             fi
           else
             echo "Creating release $TAG"
             if [ "${#ASSETS[@]}" -gt 0 ]; then
-              gh release create "$TAG" --title "LiveContainer Extended ${VER}" --notes-file "$NOTES_FILE" "${ASSETS[@]}" || true
+              if [ "${CHANNEL}" = "nightly" ]; then
+                gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" --prerelease "${ASSETS[@]}"
+              else
+                gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" "${ASSETS[@]}"
+              fi
             else
-              gh release create "$TAG" --title "LiveContainer Extended ${VER}" --notes-file "$NOTES_FILE" || true
+              if [ "${CHANNEL}" = "nightly" ]; then
+                gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" --prerelease
+              else
+                gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE"
+              fi
             fi
           fi
