@@ -24,7 +24,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Install GitHub CLI (gh) and login
+      - name: Install GitHub CLI (gh)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -39,13 +39,11 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y gh
           fi
-          # Login gh using the token provided by Actions
-          echo "${GITHUB_TOKEN}" | gh auth login --with-token
+          gh --version
 
       - name: Make auto-sync executable and run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          chmod +x .github/auto_sync.sh
-          ./.github/auto_sync.sh
+          bash .github/workflows/auto_sync.sh
