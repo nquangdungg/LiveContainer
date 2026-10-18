@@ -21,12 +21,23 @@ struct LCDashboardHeaderView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Hero
             VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(alignment: .center, spacing: 8) {
                     Text("LiveContainer")
                         .font(.system(size: 24, weight: .bold, design: .rounded))
                     Text("Extended")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.accent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(theme.accent.opacity(0.14))
+                        .clipShape(Capsule())
+                    Text("Fork")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.accentOpposite)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(theme.accentOpposite.opacity(0.14))
+                        .clipShape(Capsule())
                     Spacer(minLength: 0)
                     Button {
                         statusManager.refresh()
@@ -41,9 +52,6 @@ struct LCDashboardHeaderView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Text("Unlimited apps · one slot")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(theme.secondaryText)
             }
             
             // Status

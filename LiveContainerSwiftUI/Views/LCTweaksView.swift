@@ -74,6 +74,7 @@ struct LCTweakFolderView : View {
                     LCChromeHeader(
                         title: "Tweaks",
                         accentWord: "Extended",
+                        secondaryTag: "Fork",
                         subtitle: "Inject dylibs & frameworks"
                     )
                     .listRowInsets(EdgeInsets())

@@ -97,6 +97,7 @@ struct LCSettingsView: View {
                     LCChromeHeader(
                         title: "Settings",
                         accentWord: "Extended",
+                        secondaryTag: "Fork",
                         subtitle: "v\(extendedVersionString) · Signing · Appearance · Runtime"
                     )
                     .listRowInsets(EdgeInsets())
@@ -391,6 +392,13 @@ struct LCSettingsView: View {
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 2)
                                         .background(theme.accent.opacity(0.12))
+                                        .clipShape(Capsule())
+                                    Text("Fork")
+                                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                                        .foregroundStyle(theme.accentOpposite)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 2)
+                                        .background(theme.accentOpposite.opacity(0.12))
                                         .clipShape(Capsule())
                                 }
                                 Text("Version \(extendedVersionString)")

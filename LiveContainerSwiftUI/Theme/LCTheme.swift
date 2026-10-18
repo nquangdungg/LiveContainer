@@ -84,6 +84,20 @@ final class LCTheme: ObservableObject {
     
     var accent: Color { accentPreset.color }
     
+    /// Rough complementary color for secondary tags (English "Fork", etc.)
+    var accentOpposite: Color {
+        switch accentPreset {
+        case .orange: return Color(red: 0.25, green: 0.55, blue: 0.95)   // blue
+        case .blue:   return Color(red: 1.00, green: 0.45, blue: 0.20)   // orange
+        case .indigo: return Color(red: 0.95, green: 0.75, blue: 0.15)   // gold
+        case .teal:   return Color(red: 0.92, green: 0.30, blue: 0.45)   // rose
+        case .green:  return Color(red: 0.62, green: 0.35, blue: 0.95)   // purple
+        case .pink:   return Color(red: 0.10, green: 0.72, blue: 0.55)   // teal
+        case .purple: return Color(red: 0.18, green: 0.72, blue: 0.40)   // green
+        case .red:    return Color(red: 0.10, green: 0.70, blue: 0.75)   // cyan
+        }
+    }
+    
     var pageBackground: Color {
         Color(UIColor { t in
             t.userInterfaceStyle == .dark

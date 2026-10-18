@@ -497,26 +497,36 @@ struct LCSourcesView: View {
         NavigationView {
             Group {
                 if viewModel.sources.isEmpty {
-                    VStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 0) {
                         LCChromeHeader(
                             title: "Sources",
                             accentWord: "Extended",
+                            secondaryTag: "Fork",
                             subtitle: "AltStore / SideStore repositories"
                         )
-                        Image(systemName: "link.badge.plus")
-                            .font(.system(size: 48))
-                            .foregroundStyle(theme.secondaryText)
-                        Text("lc.sources.empty".loc)
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary)
+                        VStack(spacing: 16) {
+                            Spacer(minLength: 40)
+                            Image(systemName: "link.badge.plus")
+                                .font(.system(size: 48))
+                                .foregroundStyle(theme.secondaryText)
+                            Text("lc.sources.empty".loc)
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 24)
+                            Text("Tap + above to add a source URL")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(theme.accent)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .padding()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 } else {
                     ScrollView {
                     LCChromeHeader(
                         title: "Sources",
                         accentWord: "Extended",
+                        secondaryTag: "Fork",
                         subtitle: "AltStore / SideStore repositories"
                     )
 
