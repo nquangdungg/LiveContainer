@@ -47,6 +47,7 @@ jobs:
       - name: Archive
         run: |
           set -o pipefail
+          # Avoid FetchProvisioningProfilesOperation / invalid team AAAAA11111 on CI
           xcodebuild archive \
             -archivePath "$archive_path" \
             -scheme "$scheme" \
@@ -54,6 +55,12 @@ jobs:
             -sdk iphoneos \
             -arch arm64 \
             -configuration Release \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM= \
+            PROVISIONING_PROFILE_SPECIFIER= \
             | xcpretty
           echo "==> Archive tree:"
           find "${archive_path}.xcarchive/Products" -maxdepth 4 -type d || true

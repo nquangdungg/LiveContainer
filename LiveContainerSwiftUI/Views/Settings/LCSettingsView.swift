@@ -83,6 +83,15 @@ struct LCSettingsView: View {
     var body: some View {
         NavigationView {
             Form {
+                Section {
+                    LCChromeHeader(
+                        title: "Settings",
+                        accentWord: "Extended",
+                        subtitle: "Signing · appearance · runtime"
+                    )
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
                 if sharedModel.multiLCStatus != 2 {
                     Section{
                         if !certificateDataFound {
@@ -542,6 +551,10 @@ struct LCSettingsView: View {
                 }
             )
         }
+        .scrollContentBackground(.hidden)
+        .background(LCChromePageBackground())
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
         .navigationViewStyle(StackNavigationViewStyle())
         .onAppear() {
             if !isViewAppeared {
