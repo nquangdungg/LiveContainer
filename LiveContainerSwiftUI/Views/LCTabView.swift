@@ -51,6 +51,15 @@ struct LCTabView: View {
                 .tag(LCTabIdentifier.settings)
         }
         .tint(theme.accent)
+        .onAppear {
+            let appearance = UITabBarAppearance()
+            appearance.configureWithDefaultBackground()
+            UITabBar.appearance().standardAppearance = appearance
+            if #available(iOS 15.0, *) {
+                UITabBar.appearance().scrollEdgeAppearance = appearance
+            }
+        }
+
         .animation(.easeInOut(duration: 0.2), value: theme.accentPreset)
         .downloadAlert(helper: downloadHelper)
         .environmentObject(downloadHelper)
