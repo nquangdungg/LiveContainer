@@ -570,7 +570,7 @@ struct LCSourcesView: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden)
+        .lcHideListBackground()
         .background(LCChromePageBackground())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)

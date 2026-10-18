@@ -407,7 +407,7 @@ struct LCTweaksView: View {
     var body: some View {
         NavigationView {
             LCTweakFolderView(baseUrl: LCPath.tweakPath, isRoot: true)
-                .scrollContentBackground(.hidden)
+                .lcHideListBackground()
                 .background(LCChromePageBackground())
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)

@@ -2,12 +2,13 @@
 //  LCChrome.swift
 //  LiveContainerSwiftUI
 //
-//  Shared Extended chrome for every tab
+//  Shared Extended chrome for every tab (iOS 15+ safe)
 //
 
 import SwiftUI
+import UIKit
 
-/// Hero header used on Settings / Sources / Tweaks / Apps-adjacent screens
+/// Hero header used on Settings / Sources / Tweaks
 struct LCChromeHeader: View {
     @ObservedObject private var theme = LCTheme.shared
     var title: String
@@ -40,36 +41,43 @@ struct LCChromeHeader: View {
         .padding(.top, 8)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.pageBackground.opacity(0.001)) // hit testing
     }
 }
 
-/// Row style matching Extended cards inside lists
-struct LCChromeRowBackground: View {
-    @ObservedObject private var theme = LCTheme.shared
-    var body: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(theme.cardBackground)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(theme.cardBorder, lineWidth: 1)
-            )
-    }
-}
-
-extension View {
-    /// Apply Extended list aesthetics where possible
-    func lcChromeListStyle() -> some View {
-        self
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-    }
-}
-
-/// Tab root background
 struct LCChromePageBackground: View {
     @ObservedObject private var theme = LCTheme.shared
     var body: some View {
         theme.pageBackground.ignoresSafeArea()
+    }
+}
+
+// MARK: - iOS 15-safe list background hide
+
+struct LCHideListBackgroundModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content.scrollContentBackground(.hidden)
+        } else {
+            content.onAppear {
+                UITableView.appearance().backgroundColor = .clear
+            }
+            .onDisappear {
+                UITableView.appearance().backgroundColor = nil
+            }
+        }
+    }
+}
+
+extension View {
+    /// Hides default List/Form background on iOS 16+; best-effort clear on iOS 15.
+    func lcHideListBackground() -> some View {
+        modifier(LCHideListBackgroundModifier())
+    }
+    
+    func lcChromeListStyle() -> some View {
+        self
+            .listStyle(.insetGrouped)
+            .lcHideListBackground()
     }
 }

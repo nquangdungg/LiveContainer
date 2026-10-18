@@ -551,7 +551,7 @@ struct LCSettingsView: View {
                 }
             )
         }
-        .scrollContentBackground(.hidden)
+        .lcHideListBackground()
         .background(LCChromePageBackground())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
