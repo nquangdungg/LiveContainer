@@ -80,6 +80,16 @@ struct LCSettingsView: View {
         _store = State(initialValue: LCUtils.store())
     }
     
+
+    private var extendedVersionString: String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+        if let short = short, let build = build, short != build {
+            return "\(short) (\(build))"
+        }
+        return short ?? build ?? "4.1.8"
+    }
+    
     var body: some View {
         NavigationView {
             Form {
