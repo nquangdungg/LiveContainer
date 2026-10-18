@@ -2,8 +2,7 @@
 //  LCDashboardHeaderView.swift
 //  LiveContainerSwiftUI
 //
-//  LiveContainer Extended — Dashboard header (status cards + quick actions)
-//  Cloudflare-inspired clean dashboard style
+//  LiveContainer Extended — Hero dashboard
 //
 
 import SwiftUI
@@ -11,56 +10,58 @@ import SwiftUI
 struct LCDashboardHeaderView: View {
     @ObservedObject private var statusManager = LCDashboardStatusManager.shared
     @ObservedObject private var theme = LCTheme.shared
-    @EnvironmentObject var sharedModel: SharedModel
     
-    // Callbacks into existing LCAppListView logic
     var onRefreshAll: () -> Void
     var onOpenSideStore: () -> Void
-    var onImportIPA: () -> Void
+    var onInstallIPA: () -> Void
+    var onInstallURL: () -> Void
     var onOpenSettings: () -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // Title row
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 12) {
+            // Hero
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("LiveContainer")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
                     Text("Extended")
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundStyle(theme.accent)
+                    Spacer(minLength: 0)
+                    Button {
+                        statusManager.refresh()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(theme.secondaryText)
+                            .frame(width: 34, height: 34)
+                            .background(theme.cardBackground)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(theme.cardBorder, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
                 }
-                Spacer()
-                Button {
-                    statusManager.refresh()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(theme.secondaryText)
-                        .frame(width: 32, height: 32)
-                        .background(theme.cardBackground)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(theme.cardBorder, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
+                Text("Unlimited apps · one slot")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(theme.secondaryText)
             }
-            .padding(.horizontal, 4)
             
-            // Status cards
-            HStack(spacing: 10) {
+            // Status
+            HStack(spacing: 12) {
                 statusCard(
-                    icon: "checkmark.seal.fill",
-                    title: statusManager.certificate.title,
+                    title: "Certificate",
                     subtitle: statusManager.certificate.subtitle,
+                    badge: statusManager.certificate.title,
                     color: statusManager.certificate.indicatorColor,
+                    icon: "checkmark.shield.fill",
                     action: onOpenSettings
                 )
-                
                 statusCard(
-                    icon: statusManager.localDevVPN.isConnected ? "network" : "network.slash",
-                    title: statusManager.localDevVPN.title,
+                    title: "VPN",
                     subtitle: statusManager.localDevVPN.subtitle,
+                    badge: statusManager.localDevVPN.isConnected ? "Connected" : "Off",
                     color: statusManager.localDevVPN.indicatorColor,
+                    icon: statusManager.localDevVPN.isConnected ? "network" : "network.slash",
                     action: {
                         if !statusManager.localDevVPN.isConnected {
                             statusManager.openLocalDevVPN()
@@ -69,119 +70,122 @@ struct LCDashboardHeaderView: View {
                 )
             }
             
-            // Quick actions
+            // Actions: Refresh · SideStore · Install (menu)
             HStack(spacing: 10) {
-                quickActionButton(
-                    title: "Refresh All",
+                actionPill(
+                    title: "Refresh",
                     icon: "arrow.triangle.2.circlepath",
+                    filled: true,
                     enabled: statusManager.localDevVPN.isConnected,
-                    primary: true,
                     action: onRefreshAll
                 )
                 
-                quickActionButton(
+                actionPill(
                     title: "SideStore",
-                    icon: "shippingbox",
+                    icon: "shippingbox.fill",
+                    filled: false,
                     enabled: true,
-                    primary: false,
                     action: onOpenSideStore
                 )
                 
-                quickActionButton(
-                    title: "Import",
-                    icon: "plus.rectangle.on.folder",
-                    enabled: true,
-                    primary: false,
-                    action: onImportIPA
-                )
+                // Single Install entry → choose IPA file or URL
+                Menu {
+                    Button {
+                        onInstallIPA()
+                    } label: {
+                        Label("From Files (IPA)", systemImage: "doc.badge.plus")
+                    }
+                    Button {
+                        onInstallURL()
+                    } label: {
+                        Label("From URL", systemImage: "link")
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .bold))
+                        Text("Install")
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .foregroundStyle(Color.primary)
+                    .background(theme.cardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(theme.cardBorder, lineWidth: 1)
+                    )
+                }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-        .onAppear {
-            statusManager.refresh()
-        }
+        .padding(.top, 4)
+        .padding(.bottom, 6)
+        .onAppear { statusManager.refresh() }
     }
     
-    // MARK: - Status Card
-    
-    @ViewBuilder
-    private func statusCard(icon: String, title: String, subtitle: String, color: Color, action: @escaping () -> Void) -> some View {
+    private func statusCard(title: String, subtitle: String, badge: String, color: Color, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
+                HStack {
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(color)
+                    Spacer()
                     Circle()
                         .fill(color)
                         .frame(width: 8, height: 8)
-                    Image(systemName: icon)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(color)
-                    Spacer(minLength: 0)
                 }
-                
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.secondaryText)
+                Text(badge)
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                
                 Text(subtitle)
-                    .font(.system(size: 11, weight: .regular))
+                    .font(.system(size: 11))
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
-            .lcCard()
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+            .lcCard(radius: 16)
         }
         .buttonStyle(.plain)
     }
     
-    // MARK: - Quick Action Button
-    
-    @ViewBuilder
-    private func quickActionButton(title: String, icon: String, enabled: Bool, primary: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: {
+    private func actionPill(title: String, icon: String, filled: Bool, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button {
             guard enabled else { return }
             action()
-        }) {
-            VStack(spacing: 6) {
+        } label: {
+            HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 13, weight: .bold))
                 Text(title)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .foregroundStyle(buttonForeground(enabled: enabled, primary: primary))
-            .background(buttonBackground(enabled: enabled, primary: primary))
+            .padding(.vertical, 11)
+            .foregroundStyle(filled && enabled ? Color.white : (enabled ? Color.primary : theme.secondaryText))
+            .background(filled && enabled ? theme.accent : theme.cardBackground)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(enabled && !primary ? theme.cardBorder : Color.clear, lineWidth: 1)
+                    .stroke(filled && enabled ? Color.clear : theme.cardBorder, lineWidth: 1)
             )
-            .opacity(enabled ? 1.0 : 0.45)
+            .opacity(enabled ? 1 : 0.45)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
         .animation(.easeInOut(duration: 0.2), value: enabled)
-    }
-    
-    private func buttonForeground(enabled: Bool, primary: Bool) -> Color {
-        if !enabled { return theme.secondaryText }
-        if primary { return .white }
-        return .primary
-    }
-    
-    private func buttonBackground(enabled: Bool, primary: Bool) -> Color {
-        if !enabled {
-            return theme.cardBackground
-        }
-        if primary {
-            return theme.accent
-        }
-        return theme.cardBackground
+        .animation(.easeInOut(duration: 0.2), value: theme.accentPreset)
     }
 }
