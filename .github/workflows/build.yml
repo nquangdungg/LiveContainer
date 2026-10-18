@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       create_release:
-        description: Upload IPAs to a GitHub Release (tag nightly)
+        description: "Also publish IPAs to GitHub Release (tag: nightly)"
         type: boolean
         required: false
         default: true
@@ -43,7 +43,6 @@ jobs:
             echo "filetype=project" >> "$GITHUB_OUTPUT"
             echo "file=$(ls -A | grep -i '\.xcodeproj$' | head -1)" >> "$GITHUB_OUTPUT"
           fi
-          echo "scheme=$scheme" >> "$GITHUB_OUTPUT"
 
       - name: Archive
         run: |
@@ -101,7 +100,16 @@ jobs:
   release:
     name: Publish Release
     needs: [build]
-    if: github.event_name == 'workflow_dispatch' && inputs.create_release == true
+    # Release when:
+    #  - push to main/master succeeds
+    #  - OR manual workflow_dispatch with create_release enabled (default true)
+    if: |
+      always() &&
+      needs.build.result == 'success' &&
+      (
+        (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) ||
+        (github.event_name == 'workflow_dispatch' && (inputs.create_release == true || inputs.create_release == 'true'))
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -117,18 +125,43 @@ jobs:
         with:
           name: LiveContainer+SideStore.ipa
 
-      - name: List files
-        run: ls -lah
+      - name: Prepare release files
+        id: files
+        run: |
+          ls -lah
+          if [ ! -f LiveContainer.ipa ]; then
+            echo "ERROR: LiveContainer.ipa missing after download"
+            exit 1
+          fi
+          # softprops fails if a listed file is missing — only include existing ones
+          {
+            echo "files<<EOF"
+            echo "LiveContainer.ipa"
+            if [ -f "LiveContainer+SideStore.ipa" ]; then
+              echo "LiveContainer+SideStore.ipa"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Upload list:"
+          cat <<LIST
+          LiveContainer.ipa
+          $([ -f LiveContainer+SideStore.ipa ] && echo LiveContainer+SideStore.ipa)
+          LIST
 
       - name: Create / update nightly release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
-          name: Nightly
+          name: "LiveContainer Extended — Nightly"
           prerelease: true
           generate_release_notes: true
-          files: |
-            LiveContainer.ipa
-            LiveContainer+SideStore.ipa
+          files: ${{ steps.files.outputs.files }}
+          body: |
+            **LiveContainer Extended** nightly build
+
+            - Commit: `${{ github.sha }}`
+            - Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Install via SideStore / TrollStore / iloader (ad-hoc signed).
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

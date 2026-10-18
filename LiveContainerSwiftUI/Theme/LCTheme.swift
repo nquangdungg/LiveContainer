@@ -2,13 +2,14 @@
 //  LCTheme.swift
 //  LiveContainerSwiftUI
 //
-//  LiveContainer Extended — Theme & Accent (Cloudflare-inspired)
+//  LiveContainer Extended — Theme, accent, app layout
 //
 
 import SwiftUI
 import UIKit
+import Combine
 
-// MARK: - Accent presets
+// MARK: - Accent
 
 enum LCAccentPreset: String, CaseIterable, Identifiable {
     case orange = "Orange"
@@ -36,7 +37,25 @@ enum LCAccentPreset: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Theme
+// MARK: - App layout
+
+enum LCAppLayoutMode: String, CaseIterable, Identifiable {
+    case list = "List"
+    case grid = "Grid"
+    case compact = "Compact"
+    
+    var id: String { rawValue }
+    
+    var systemImage: String {
+        switch self {
+        case .list: return "list.bullet"
+        case .grid: return "square.grid.2x2"
+        case .compact: return "list.bullet.rectangle"
+        }
+    }
+}
+
+// MARK: - Theme (live-updating)
 
 final class LCTheme: ObservableObject {
     static let shared = LCTheme()
@@ -46,6 +65,7 @@ final class LCTheme: ObservableObject {
     @Published var accentPreset: LCAccentPreset {
         didSet {
             defaults.set(accentPreset.rawValue, forKey: "LCAccentPreset")
+            objectWillChange.send()
         }
     }
     
@@ -55,23 +75,36 @@ final class LCTheme: ObservableObject {
         }
     }
     
+    @Published var appLayout: LCAppLayoutMode {
+        didSet {
+            defaults.set(appLayout.rawValue, forKey: "LCAppLayoutMode")
+            objectWillChange.send()
+        }
+    }
+    
     var accent: Color { accentPreset.color }
     
+    var pageBackground: Color {
+        Color(UIColor { t in
+            t.userInterfaceStyle == .dark
+                ? UIColor(red: 0.07, green: 0.07, blue: 0.09, alpha: 1)
+                : UIColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)
+        })
+    }
+    
     var cardBackground: Color {
-        Color(UIColor { trait in
-            if trait.userInterfaceStyle == .dark {
-                return UIColor(red: 0.11, green: 0.12, blue: 0.14, alpha: 1)
-            }
-            return UIColor(red: 0.98, green: 0.98, blue: 0.99, alpha: 1)
+        Color(UIColor { t in
+            t.userInterfaceStyle == .dark
+                ? UIColor(red: 0.12, green: 0.13, blue: 0.15, alpha: 1)
+                : UIColor.white
         })
     }
     
     var cardBorder: Color {
-        Color(UIColor { trait in
-            if trait.userInterfaceStyle == .dark {
-                return UIColor(white: 1, alpha: 0.08)
-            }
-            return UIColor(white: 0, alpha: 0.06)
+        Color(UIColor { t in
+            t.userInterfaceStyle == .dark
+                ? UIColor(white: 1, alpha: 0.08)
+                : UIColor(white: 0, alpha: 0.06)
         })
     }
     
@@ -89,27 +122,35 @@ final class LCTheme: ObservableObject {
         } else {
             self.doubleTapStatusBarToExit = defaults.bool(forKey: "LCDoubleTapStatusBarToExit")
         }
+        
+        let layoutRaw = defaults.string(forKey: "LCAppLayoutMode") ?? LCAppLayoutMode.list.rawValue
+        self.appLayout = LCAppLayoutMode(rawValue: layoutRaw) ?? .list
+    }
+    
+    func setAccent(_ preset: LCAccentPreset) {
+        accentPreset = preset
     }
 }
 
-// MARK: - Card modifier
+// MARK: - Modifiers
 
 struct LCCardModifier: ViewModifier {
     @ObservedObject private var theme = LCTheme.shared
+    var radius: CGFloat = 16
     
     func body(content: Content) -> some View {
         content
             .background(theme.cardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .stroke(theme.cardBorder, lineWidth: 1)
             )
     }
 }
 
 extension View {
-    func lcCard() -> some View {
-        modifier(LCCardModifier())
+    func lcCard(radius: CGFloat = 16) -> some View {
+        modifier(LCCardModifier(radius: radius))
     }
 }

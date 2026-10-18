@@ -69,6 +69,7 @@ struct LCSettingsView: View {
     @AppStorage("BKNoWatchdogs") var disableLiveProcessWatchdog = false
     
     @EnvironmentObject private var sharedModel : SharedModel
+    @ObservedObject private var theme = LCTheme.shared
     
     @State private var isViewAppeared = false
     
@@ -201,7 +202,71 @@ struct LCSettingsView: View {
                     }
                 }
                 
-                Section{
+                Section {
+                    // Accent — live circles
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Accent Color")
+                                .font(.system(size: 15, weight: .semibold))
+                            Spacer()
+                            Text(theme.accentPreset.rawValue)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(theme.accent)
+                                .id(theme.accentPreset) // force refresh label
+                        }
+                        HStack(spacing: 10) {
+                            ForEach(LCAccentPreset.allCases) { preset in
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        theme.setAccent(preset)
+                                    }
+                                } label: {
+                                    ZStack {
+                                        Circle()
+                                            .fill(preset.color)
+                                            .frame(width: 28, height: 28)
+                                        if theme.accentPreset == preset {
+                                            Circle()
+                                                .strokeBorder(Color.white, lineWidth: 2)
+                                                .frame(width: 28, height: 28)
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    
+                    // App layout
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("App Layout")
+                            .font(.system(size: 15, weight: .semibold))
+                        HStack(spacing: 8) {
+                            ForEach(LCAppLayoutMode.allCases) { mode in
+                                Button {
+                                    withAnimation { theme.appLayout = mode }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: mode.systemImage)
+                                        Text(mode.rawValue)
+                                    }
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(theme.appLayout == mode ? Color.white : Color.primary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(theme.appLayout == mode ? theme.accent : Color(UIColor.secondarySystemFill))
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    
                     Toggle(isOn: $dynamicColors) {
                         Text("lc.settings.dynamicColors".loc)
                     }
@@ -210,36 +275,13 @@ struct LCSettingsView: View {
                             Text("lc.settings.darkModeIcon".loc)
                         }
                     }
-                    
-                    // LiveContainer Extended — Accent color
-                    Picker(selection: Binding(
-                        get: { LCTheme.shared.accentPreset },
-                        set: { LCTheme.shared.accentPreset = $0 }
-                    )) {
-                        ForEach(LCAccentPreset.allCases) { preset in
-                            HStack {
-                                Circle()
-                                    .fill(preset.color)
-                                    .frame(width: 14, height: 14)
-                                Text(preset.rawValue)
-                            }
-                            .tag(preset)
-                        }
-                    } label: {
-                        Text("Accent Color")
+                    Toggle(isOn: $theme.doubleTapStatusBarToExit) {
+                        Text("Double-tap status bar to exit app")
                     }
-                    
-                    Toggle(isOn: Binding(
-                        get: { LCTheme.shared.doubleTapStatusBarToExit },
-                        set: { LCTheme.shared.doubleTapStatusBarToExit = $0 }
-                    )) {
-                        Text("Double-tap Status Bar to Exit App")
-                    }
-                    
                 } header: {
-                    Text("lc.settings.interface".loc)
+                    Text("Appearance")
                 } footer: {
-                    Text("lc.settings.dynamicColors.desc".loc + "\n\nDouble-tap the status bar while an app is running to return to LiveContainer without fully quitting.")
+                    Text("Accent applies instantly. Layout changes the Apps tab (List / Grid / Compact).")
                 }
                 Section{
                     Toggle(isOn: $frameShortIcon) {
@@ -309,26 +351,35 @@ struct LCSettingsView: View {
                 }
                 
                 Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("LiveContainer Extended")
-                            .font(.headline)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Text("LiveContainer")
+                                .font(.system(size: 17, weight: .bold, design: .rounded))
+                            Text("Extended")
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(theme.accent)
+                        }
                         Text("An extended implementation of LiveContainer")
-                            .font(.caption)
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
                     
                     HStack {
                         Image(systemName: "person.crop.circle.fill")
-                            .foregroundStyle(LCTheme.shared.accent)
+                            .foregroundStyle(theme.accent)
                         Button("Nguyen Quang Dung") {
                             openLeadDeveloperGitHub()
                         }
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
                     }
                 } header: {
-                    Text("Development & Engineering")
+                    Text("LiveContainer Extended")
                 } footer: {
-                    Text("Lead Developer of LiveContainer Extended")
+                    Text("Lead Developer · Development & Engineering")
                 }
                 
                 Section {
@@ -353,7 +404,7 @@ struct LCSettingsView: View {
                 } header: {
                     Text("Original project")
                 } footer: {
-                    Text("Based on LiveContainer — Original authors and contributors\n\n" + "lc.settings.warning".loc)
+                    Text("Based on LiveContainer — original authors & contributors.\n\n" + "lc.settings.warning".loc)
                 }
                 
                 VStack{

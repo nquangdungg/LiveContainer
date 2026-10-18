@@ -16,6 +16,7 @@ class SearchContext: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
 
+
     init() {
         $query
             .debounce(for: .seconds(0.2), scheduler: DispatchQueue.main)
@@ -120,6 +121,61 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
         _installOptions = State(initialValue: [])
     }
     
+
+    @ObservedObject private var theme = LCTheme.shared
+    
+    @ViewBuilder
+    private var appLayoutContent: some View {
+        if filteredApps.isEmpty {
+            LCAppsEmptyState(
+                onImport: { choosingIPA = true },
+                onInstallURL: { Task { await startInstallFromUrl() } },
+                onOpenSideStore: { LCUtils.openSideStore(delegate: self) }
+            )
+        } else {
+            switch theme.appLayout {
+            case .list:
+                LazyVStack(spacing: 10) {
+                    ForEach(filteredApps, id: \.self) { app in
+                        LCAppBanner(appModel: app, delegate: self)
+                    }
+                }
+            case .grid:
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                    ForEach(filteredApps, id: \.self) { app in
+                        LCAppGridCell(
+                            appModel: app,
+                            onLaunch: { Task { await launchFromCell(app) } },
+                            onOpenSettings: { openNavigationView(view: AnyView(LCAppSettingsView(model: app))) },
+                            onRemove: { removeApp(app: app) }
+                        )
+                    }
+                }
+            case .compact:
+                LazyVStack(spacing: 8) {
+                    ForEach(filteredApps, id: \.self) { app in
+                        LCAppCompactRow(
+                            appModel: app,
+                            onLaunch: { Task { await launchFromCell(app) } },
+                            onOpenSettings: { openNavigationView(view: AnyView(LCAppSettingsView(model: app))) },
+                            onRemove: { removeApp(app: app) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+    private func launchFromCell(_ app: LCAppModel) async {
+        do {
+            try await app.runApp()
+        } catch {
+            errorInfo = "\(error)"
+            errorShow = true
+        }
+    }
+
+    
     var body: some View {
         NavigationView {
             ScrollView {
@@ -135,30 +191,36 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                 if sharedModel.multiLCStatus != 2 {
                     LCDashboardHeaderView(
                         onRefreshAll: {
-                            // Open built-in SideStore and let user refresh; gated by LocalDevVPN in the button itself
                             LCUtils.openSideStore(delegate: self)
                         },
                         onOpenSideStore: {
                             LCUtils.openSideStore(delegate: self)
                         },
-                        onImportIPA: {
+                        onInstallIPA: {
                             choosingIPA = true
+                        },
+                        onInstallURL: {
+                            Task { await startInstallFromUrl() }
                         },
                         onOpenSettings: {
                             sharedModel.selectedTab = .settings
                         }
                     )
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 4)
                 }
                 
-                LazyVStack {
-                    ForEach(filteredApps, id: \.self) { app in
-                        LCAppBanner(appModel: app, delegate: self)
-                    }
-                    .transition(.scale)
+                // Section chrome + layout switcher
+                LCAppsSectionHeader(appCount: filteredApps.count) {
+                    customSortViewPresent = true
                 }
-                .padding()
-                .animation(searchContext.isTyping ? nil : .easeInOut, value: filteredApps)
+                .environmentObject(sharedAppSortManager)
+                
+                // Layout-aware app list
+                appLayoutContent
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                    .animation(searchContext.isTyping ? nil : .easeInOut, value: filteredApps)
+                    .animation(.easeInOut(duration: 0.2), value: LCTheme.shared.appLayout)
 
                 VStack {
                     if LCUtils.appGroupUserDefault.bool(forKey: "LCStrictHiding") {
@@ -231,79 +293,9 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                 }
             }
             
-            .navigationTitle("lc.appList.myApps".loc)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    if sharedModel.multiLCStatus != 2 {
-                        if !installprogressVisible {
-                            Menu {
-                                
-                                Button("lc.appList.installFromIpa".loc, systemImage: "doc.badge.plus", action: {
-                                    choosingIPA = true
-                                })
-                                Button("lc.appList.installFromUrl".loc, systemImage: "link.badge.plus", action: {
-                                    Task{ await startInstallFromUrl() }
-                                })
-                            } label: {
-                                Label("add", systemImage: "plus")
-                            }
-                            
-                        } else {
-                            ProgressView().progressViewStyle(.circular).padding(.horizontal, 8)
-                        }
-                    }
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    if(UserDefaults.sideStoreExist()) {
-                        Button {
-                            LCUtils.openSideStore(delegate: self)
-                        } label: {
-                            IconImageView(icon: BuiltInSideStoreAppInfo.shared.iconIsDarkIcon(darkModeIcon))
-                                .frame(width: UIFont.preferredFont(forTextStyle: .body).lineHeight, height: UIFont.preferredFont(forTextStyle: .body).lineHeight)
+            .navigationTitle("LiveContainer")
+            .navigationBarTitleDisplayMode(.inline)
 
-                        }
-                    } else {
-                        Button("Help", systemImage: "questionmark") {
-                            helpPresent = true
-                        }
-                    }
-                    
-
-                }
-                
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("lc.appList.openLink".loc, systemImage: "link", action: {
-                        Task { await onOpenWebViewTapped() }
-                    })
-                }
-                
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Picker("Sort by", selection: $sharedAppSortManager.appSortType) {
-                            ForEach(AppSortType.allCases, id: \.self) { sortType in
-                                Label(sortType.displayName, systemImage: sortType.systemImage)
-                                    .tag(sortType)
-                            }
-                        }
-                        .onChange(of: sharedAppSortManager.appSortType) { newValue in
-                            if sharedAppSortManager.appSortType == .custom {
-                                customSortViewPresent = true
-                            }
-                        }
-                        if sharedAppSortManager.appSortType == .custom {
-                            Divider()
-                            
-                            Button {
-                                customSortViewPresent = true
-                            } label: {
-                                Label("lc.appList.sort.customManage".loc, systemImage: "slider.horizontal.3")
-                            }
-                        }
-                    } label: {
-                        Label("Sort by", systemImage: "line.3.horizontal.decrease.circle")
-                    }
-                }
-            }
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .alert("lc.common.error".loc, isPresented: $errorShow){

@@ -14,6 +14,7 @@ struct LCTabView: View {
     @State var errorInfo = ""
     
     @EnvironmentObject var sharedModel : SharedModel
+    @ObservedObject private var theme = LCTheme.shared
     @EnvironmentObject var sceneDelegate: SceneDelegate
     @State var shouldToggleMainWindowOpen = false
     @Environment(\.scenePhase) var scenePhase
@@ -49,7 +50,8 @@ struct LCTabView: View {
                 }
                 .tag(LCTabIdentifier.settings)
         }
-        .tint(LCTheme.shared.accent)
+        .tint(theme.accent)
+        .animation(.easeInOut(duration: 0.2), value: theme.accentPreset)
         .downloadAlert(helper: downloadHelper)
         .environmentObject(downloadHelper)
         .alert("lc.common.error".loc, isPresented: $errorShow){
