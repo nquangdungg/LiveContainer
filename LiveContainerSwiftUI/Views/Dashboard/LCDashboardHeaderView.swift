@@ -17,6 +17,9 @@ struct LCDashboardHeaderView: View {
     var onInstallURL: () -> Void
     var onOpenSettings: () -> Void
     
+    /// When true, primary Refresh pill shows a spinner and is non-interactive.
+    var isRefreshingApps: Bool = false
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Hero
@@ -24,14 +27,14 @@ struct LCDashboardHeaderView: View {
                 HStack(alignment: .center, spacing: 8) {
                     Text("LiveContainer")
                         .font(.system(size: 24, weight: .bold, design: .rounded))
-                    Text("Extended")
+                    Text("lc.dashboard.badgeExtended".loc)
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.accent)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(theme.accent.opacity(0.14))
                         .clipShape(Capsule())
-                    Text("Fork")
+                    Text("lc.dashboard.badgeFork".loc)
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.accentOpposite)
                         .padding(.horizontal, 8)
@@ -39,10 +42,11 @@ struct LCDashboardHeaderView: View {
                         .background(theme.accentOpposite.opacity(0.14))
                         .clipShape(Capsule())
                     Spacer(minLength: 0)
+                    // Status-only refresh (certificate / VPN) — distinct from apps Refresh pill
                     Button {
                         statusManager.refresh()
                     } label: {
-                        Image(systemName: "arrow.clockwise")
+                        Image(systemName: "gauge.with.dots.needle.67percent")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(theme.secondaryText)
                             .frame(width: 34, height: 34)
@@ -51,13 +55,15 @@ struct LCDashboardHeaderView: View {
                             .overlay(Circle().stroke(theme.cardBorder, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("lc.dashboard.refreshStatus".loc)
+                    .accessibilityHint("lc.dashboard.refreshStatusHint".loc)
                 }
             }
             
             // Status
             HStack(spacing: 12) {
                 statusCard(
-                    title: "Certificate",
+                    title: "lc.dashboard.certificate".loc,
                     subtitle: statusManager.certificate.subtitle,
                     badge: statusManager.certificate.title,
                     color: statusManager.certificate.indicatorColor,
@@ -65,9 +71,11 @@ struct LCDashboardHeaderView: View {
                     action: onOpenSettings
                 )
                 statusCard(
-                    title: "VPN",
+                    title: "lc.dashboard.vpn".loc,
                     subtitle: statusManager.localDevVPN.subtitle,
-                    badge: statusManager.localDevVPN.isConnected ? "Connected" : "Off",
+                    badge: statusManager.localDevVPN.isConnected
+                        ? "lc.dashboard.vpnConnected".loc
+                        : "lc.dashboard.vpnOff".loc,
                     color: statusManager.localDevVPN.indicatorColor,
                     icon: statusManager.localDevVPN.isConnected ? "network" : "network.slash",
                     action: {
@@ -78,41 +86,44 @@ struct LCDashboardHeaderView: View {
                 )
             }
             
-            // Actions: Refresh · SideStore · Install (menu)
+            // Actions: Refresh Apps · SideStore · Install (menu)
+            // Rule: Refresh Apps requires VPN connected
             HStack(spacing: 10) {
                 actionPill(
-                    title: "Refresh",
+                    title: isRefreshingApps
+                        ? "lc.dashboard.refreshing".loc
+                        : "lc.dashboard.refreshApps".loc,
                     icon: "arrow.triangle.2.circlepath",
                     filled: true,
-                    enabled: statusManager.localDevVPN.isConnected,
+                    enabled: statusManager.localDevVPN.isConnected && !isRefreshingApps,
+                    isBusy: isRefreshingApps,
                     action: onRefreshAll
                 )
                 
                 actionPill(
-                    title: "SideStore",
+                    title: "lc.dashboard.sidestore".loc,
                     icon: "shippingbox.fill",
                     filled: false,
                     enabled: true,
                     action: onOpenSideStore
                 )
                 
-                // Single Install entry → choose IPA file or URL
                 Menu {
                     Button {
                         onInstallIPA()
                     } label: {
-                        Label("From Files (IPA)", systemImage: "doc.badge.plus")
+                        Label("lc.dashboard.installFromFiles".loc, systemImage: "doc.badge.plus")
                     }
                     Button {
                         onInstallURL()
                     } label: {
-                        Label("From URL", systemImage: "link")
+                        Label("lc.dashboard.installFromURL".loc, systemImage: "link")
                     }
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "plus")
                             .font(.system(size: 13, weight: .bold))
-                        Text("Install")
+                        Text("lc.dashboard.install".loc)
                             .font(.system(size: 13, weight: .semibold))
                             .lineLimit(1)
                         Image(systemName: "chevron.up.chevron.down")
@@ -168,32 +179,42 @@ struct LCDashboardHeaderView: View {
         .buttonStyle(.plain)
     }
     
-    private func actionPill(title: String, icon: String, filled: Bool, enabled: Bool, action: @escaping () -> Void) -> some View {
+    private func actionPill(title: String, icon: String, filled: Bool, enabled: Bool, isBusy: Bool = false, action: @escaping () -> Void) -> some View {
         Button {
             guard enabled else { return }
             action()
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .bold))
+                if isBusy {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                        .tint(filled ? Color.white : theme.accent)
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .bold))
+                }
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 11)
-            .foregroundStyle(filled && enabled ? Color.white : (enabled ? Color.primary : theme.secondaryText))
-            .background(filled && enabled ? theme.accent : theme.cardBackground)
+            .foregroundStyle(filled && (enabled || isBusy) ? Color.white : (enabled ? Color.primary : theme.secondaryText))
+            .background(filled && (enabled || isBusy) ? theme.accent : theme.cardBackground)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(filled && enabled ? Color.clear : theme.cardBorder, lineWidth: 1)
+                    .stroke(filled && (enabled || isBusy) ? Color.clear : theme.cardBorder, lineWidth: 1)
             )
-            .opacity(enabled ? 1 : 0.45)
+            .opacity(enabled || isBusy ? 1 : 0.45)
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+        .accessibilityLabel(title)
+        .accessibilityHint(filled ? "lc.dashboard.refreshAppsHint".loc : "")
         .animation(.easeInOut(duration: 0.2), value: enabled)
+        .animation(.easeInOut(duration: 0.2), value: isBusy)
         .animation(.easeInOut(duration: 0.2), value: theme.accentPreset)
     }
 }

@@ -18,9 +18,11 @@ struct LCAppsSectionHeader: View {
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("My Apps")
+                Text("lc.dashboard.myApps".loc)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
-                Text(appCount == 0 ? "No apps yet" : "\(appCount) installed")
+                Text(appCount == 0
+                    ? "lc.dashboard.noAppsYet".loc
+                    : "lc.dashboard.appsInstalledCount %lld".localizeWithFormat(appCount))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(theme.secondaryText)
             }
@@ -105,9 +107,9 @@ struct LCAppsEmptyState: View {
             Image(systemName: "square.stack.3d.up.slash")
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(theme.secondaryText)
-            Text("No apps installed")
+            Text("lc.dashboard.emptyTitle".loc)
                 .font(.system(size: 17, weight: .semibold))
-            Text("Import an IPA or open SideStore to add your first app.")
+            Text("lc.dashboard.emptySubtitle".loc)
                 .font(.system(size: 13))
                 .foregroundStyle(theme.secondaryText)
                 .multilineTextAlignment(.center)
@@ -115,13 +117,13 @@ struct LCAppsEmptyState: View {
             HStack(spacing: 10) {
                 Menu {
                     Button(action: onImport) {
-                        Label("From Files (IPA)", systemImage: "doc.badge.plus")
+                        Label("lc.dashboard.installFromFiles".loc, systemImage: "doc.badge.plus")
                     }
                     Button(action: onInstallURL) {
-                        Label("From URL", systemImage: "link")
+                        Label("lc.dashboard.installFromURL".loc, systemImage: "link")
                     }
                 } label: {
-                    Label("Install App", systemImage: "plus")
+                    Label("lc.dashboard.installApp".loc, systemImage: "plus")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 16)
@@ -130,7 +132,7 @@ struct LCAppsEmptyState: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 Button(action: onOpenSideStore) {
-                    Label("SideStore", systemImage: "shippingbox")
+                    Label("lc.dashboard.sidestore".loc, systemImage: "shippingbox")
                         .font(.system(size: 14, weight: .semibold))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)

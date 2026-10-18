@@ -83,6 +83,10 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
     @AppStorage("darkModeIcon", store: LCUtils.appGroupUserDefault) private var darkModeIcon = false
     
     @State private var isViewAppeared = false
+    @State private var isRefreshingApps = false
+    @State private var refreshErrorShow = false
+    @State private var refreshErrorInfo = ""
+    @State private var showRefreshSuccess = false
     
     @ObservedObject var searchContext: SearchContext = SearchContext()
     var sortedApps: [LCAppModel] {
@@ -191,7 +195,7 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                 if sharedModel.multiLCStatus != 2 {
                     LCDashboardHeaderView(
                         onRefreshAll: {
-                            LCUtils.openSideStore(delegate: self)
+                            Task { await refreshAllAppsViaIntent() }
                         },
                         onOpenSideStore: {
                             LCUtils.openSideStore(delegate: self)
@@ -204,9 +208,32 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                         },
                         onOpenSettings: {
                             sharedModel.selectedTab = .settings
-                        }
+                        },
+                        isRefreshingApps: isRefreshingApps
                     )
                     .padding(.bottom, 4)
+                }
+                
+                if showRefreshSuccess {
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(LCTheme.shared.success)
+                        Text("lc.dashboard.refreshSuccess".loc)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(LCTheme.shared.success)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(LCTheme.shared.success.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(LCTheme.shared.success.opacity(0.35), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 
                 // Section chrome + layout switcher
@@ -306,6 +333,17 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
             })
         } message: {
             Text(errorInfo)
+        }
+        .alert("lc.dashboard.refreshFailed".loc, isPresented: $refreshErrorShow) {
+            Button("lc.common.ok".loc, action: {})
+            Button("lc.common.copy".loc, action: {
+                UIPasteboard.general.string = refreshErrorInfo
+            })
+            Button("lc.dashboard.sidestore".loc) {
+                LCUtils.openSideStore(delegate: self)
+            }
+        } message: {
+            Text(refreshErrorInfo)
         }
         .betterFileImporter(isPresented: $choosingIPA, types: [.ipa, .tipa], multiple: false, callback: { fileUrls in
             Task { await startInstallApp(fileUrls[0]) }
@@ -788,6 +826,45 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
             }
 
             self.installprogressVisible = false
+        }
+    }
+    
+    /// Same path as the system “Refresh All Apps” Shortcut / App Intent.
+    /// Rule: UI only enables this when VPN is connected (enforced in header).
+    @MainActor
+    func refreshAllAppsViaIntent() async {
+        guard !isRefreshingApps else { return }
+        isRefreshingApps = true
+        defer { isRefreshingApps = false }
+        
+        guard let bridge = NSClassFromString("LCRefreshAllAppsBridge") as? NSObject.Type else {
+            LCUtils.openSideStore(delegate: self)
+            return
+        }
+        
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            typealias CompletionBlock = @convention(block) (NSError?) -> Void
+            let completion: CompletionBlock = { error in
+                DispatchQueue.main.async {
+                    if let error {
+                        self.refreshErrorInfo = error.localizedDescription
+                        self.refreshErrorShow = true
+                    } else {
+                        LCDashboardStatusManager.shared.refresh()
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            self.showRefreshSuccess = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                self.showRefreshSuccess = false
+                            }
+                        }
+                    }
+                    cont.resume()
+                }
+            }
+            let blockObject: AnyObject = unsafeBitCast(completion, to: AnyObject.self)
+            bridge.perform(NSSelectorFromString("refreshWithCompletion:"), with: blockObject)
         }
     }
     

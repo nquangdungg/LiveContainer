@@ -20,6 +20,41 @@ func performIntentRefresh(identifier: String, mangledTypeName: String, intentPro
     }
 }
 
+/// Same path as the system “Refresh All Apps” Shortcut / App Intent.
+@available(iOS 17.0, *)
+public func refreshAllAppsFromUI(progress: Progress = Progress()) async throws {
+    try await performIntentRefresh(
+        identifier: "RefreshAllIntent",
+        mangledTypeName: "9SideStore20RefreshAllAppsIntentV",
+        intentProgress: progress
+    )
+}
+
+/// Cross-module bridge so LiveContainerSwiftUI can trigger refresh without a hard link.
+@objc(LCRefreshAllAppsBridge)
+public class LCRefreshAllAppsBridge: NSObject {
+    /// Selector: `refreshWithCompletion:`
+    @objc public static func refresh(completion: (@convention(block) (NSError?) -> Void)?) {
+        if #available(iOS 17.0, *) {
+            Task {
+                do {
+                    try await refreshAllAppsFromUI()
+                    await MainActor.run { completion?(nil) }
+                } catch {
+                    let nsError = error as NSError
+                    await MainActor.run { completion?(nsError) }
+                }
+            }
+        } else {
+            completion?(NSError(
+                domain: "SideStore",
+                code: 17,
+                userInfo: [NSLocalizedDescriptionKey: "Refresh All Apps requires iOS 17 or later."]
+            ))
+        }
+    }
+}
+
 @available(iOS 17.0, *)
 public struct RefreshAllAppsWidgetIntent: AppIntent, ProgressReportingIntent
 {
