@@ -1282,7 +1282,7 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                         if sharedModel.apps.contains(where: { candidate in
                             return candidate.appInfo.urlSchemes().contains("stosdebug") &&
                             (sharedModel.multiLCStatus != 2 || candidate.appInfo.isShared)
-                        })) {
+                        }) {
                             if let url = URL(string: "stosdebug://enableJIT?bundleId=\(Bundle.main.bundleIdentifier!)&appName=\(appName)&pid=\(pid)&relaunchApp=false& forcePID=true\(encoded)") {
                                 Task { await openWebView(urlString: url.absoluteString) }
                             }
@@ -1305,7 +1305,7 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                         if sharedModel.apps.contains(where: { candidate in
                             return candidate.appInfo.urlSchemes().contains("stikjit") &&
                             (sharedModel.multiLCStatus != 2 || candidate.appInfo.isShared)
-                        })) {
+                        }) {
                             Task { await openWebView(urlString: url.absoluteString) }
                         } else {
                             errorInfo = "StikDebug is not found. Please install it first and switch it to shared app."

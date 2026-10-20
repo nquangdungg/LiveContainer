@@ -298,28 +298,63 @@ jobs:
           {
             echo "# LiveContainer Extended ${VER}"
             echo ""
-            echo "| Component | Version |"
-            echo "|-----------|---------|"
+            echo "| Component                  | Version                              |"
+            echo "| -------------------------- | ------------------------------------ |"
             echo "| **LiveContainer Extended** | \`${VER}\` |"
-            echo "| **Embedded SideStore** | \`${SS}\` |"
-            echo "| **Embedded StikDebug** | \`${ST}\` |"
+            echo "| **Embedded SideStore**     | \`${SS}\` |"
+            if [ -n "${ST}" ] && [ "${ST}" != "not bundled" ] && [ "${ST}" != "unknown" ]; then
+              echo "| **Embedded StikDebug**     | \`${ST}\` |"
+            fi
             echo ""
-            echo "${{ inputs.summary }}"
+            echo ""
+            echo "> [!Warning]"
+            echo "> Standalone build needs **SideStore 0.6.2+** or **AltStore 2.2.1+**."
+            echo "> For \`LiveContainer+SideStore.ipa\` use [Impactor](https://github.com/khcrysalis/Impactor) or [iloader](https://github.com/nab138/iloader)."
             echo ""
             echo "## New Features"
-            echo "${{ inputs.features }}" | sed '/^$/d' | sed 's/^/- /' || echo "- (none)"
+            echo ""
+            FEATURES="${{ inputs.features }}"
+            if [ -n "$(printf '%s' "$FEATURES" | tr -d '[:space:]')" ]; then
+              printf '%s\n' "$FEATURES" | sed '/^[[:space:]]*$/d' | sed 's/^/- /'
+            else
+              echo "- (none listed)"
+            fi
             echo ""
             echo "## Improvements"
-            echo "${{ inputs.improvements }}" | sed '/^$/d' | sed 's/^/- /' || echo "- (none)"
+            echo ""
+            IMPROVEMENTS="${{ inputs.improvements }}"
+            if [ -n "$(printf '%s' "$IMPROVEMENTS" | tr -d '[:space:]')" ]; then
+              printf '%s\n' "$IMPROVEMENTS" | sed '/^[[:space:]]*$/d' | sed 's/^/- /'
+            else
+              echo "- (none listed)"
+            fi
             echo ""
             echo "## Bug Fixes"
-            echo "${{ inputs.bug_fixes }}" | sed '/^$/d' | sed 's/^/- /' || echo "- (none)"
             echo ""
-            echo "${{ inputs.notes }}"
+            BUGFIXES="${{ inputs.bug_fixes }}"
+            if [ -n "$(printf '%s' "$BUGFIXES" | tr -d '[:space:]')" ]; then
+              printf '%s\n' "$BUGFIXES" | sed '/^[[:space:]]*$/d' | sed 's/^/- /'
+            else
+              echo "- (none listed)"
+            fi
+            echo ""
+            echo "## Notes"
+            echo ""
+            NOTES="${{ inputs.notes }}"
+            SUMMARY="${{ inputs.summary }}"
+            if [ -n "$(printf '%s' "$SUMMARY" | tr -d '[:space:]')" ]; then
+              printf '%s\n' "$SUMMARY"
+              echo ""
+            fi
+            if [ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+              printf '%s\n' "$NOTES"
+            else
+              echo "-"
+            fi
             echo ""
             echo "## Credits"
             echo "- **Lead Developer:** Nguyen Quang Dung"
-            echo "- LiveContainer · SideStore · StikDebug"
+            echo "- Based on [LiveContainer](https://github.com/LiveContainer/LiveContainer)"
           } > release_body.txt
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
