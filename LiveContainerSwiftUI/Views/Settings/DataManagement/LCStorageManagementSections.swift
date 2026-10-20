@@ -102,7 +102,7 @@ struct LCStorageSummarySection: View {
                     }
                 }
 
-                if breakdown != nil {
+                if let breakdown {
                     Text(formatStorageSize(breakdown.totalSize))
                         .font(.title2)
                         .fontWeight(.semibold)

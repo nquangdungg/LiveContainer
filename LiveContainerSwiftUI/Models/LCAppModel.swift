@@ -352,7 +352,7 @@ class LCAppModel: ObservableObject, Hashable {
                             return
                         }
                         let scriptData = self.jitLaunchScriptJs
-                        let appName = self.appInfo.displayName()
+                        let appName = self.appInfo.displayName() ?? ""
                         let delegate = self.delegate
                         Task {
                             if let scriptData, !scriptData.isEmpty {
