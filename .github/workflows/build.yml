@@ -73,6 +73,7 @@ jobs:
       archive_path: archive
     outputs:
       has_sidestore: ${{ steps.pack.outputs.has_sidestore }}
+      sidestore_version: ${{ steps.pack.outputs.sidestore_version }}
       version: ${{ steps.version.outputs.version }}
 
     steps:
@@ -175,6 +176,19 @@ jobs:
           else
             echo "has_sidestore=false" >> "$GITHUB_OUTPUT"
           fi
+          if [ -f sidestore_version.txt ]; then
+            SS_VER=$(tr -d '[:space:]' < sidestore_version.txt)
+          else
+            SS_VER="not bundled"
+          fi
+          echo "sidestore_version=$SS_VER" >> "$GITHUB_OUTPUT"
+          echo "==> LiveContainer version: ${{ steps.version.outputs.version }}"
+          echo "==> SideStore embedded: $SS_VER"
+          # Upload version stamp as artifact helper
+          {
+            echo "livecontainer=${{ steps.version.outputs.version }}"
+            echo "sidestore=$SS_VER"
+          } > build_versions.txt
 
       - name: Upload LiveContainer.ipa
         uses: actions/upload-artifact@v4
@@ -240,6 +254,8 @@ jobs:
 
           # Version from build job
           VER="${{ needs.build.outputs.version }}"
+          SS_VER="${{ needs.build.outputs.sidestore_version }}"
+          if [ -z "$SS_VER" ]; then SS_VER="not bundled"; fi
           if [ -z "$VER" ]; then
             echo "No version found from build job; aborting release prep"
             exit 1
@@ -263,12 +279,21 @@ jobs:
           Commit: [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
           Message: ${COMMIT_MSG}
 
+          | Component | Version |
+          |-----------|---------|
+          | **LiveContainer Extended** | `${VER}` |
+          | **Embedded SideStore** | `${SS_VER}` |
+
           This is a nightly release [created automatically with GitHub Actions workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
           EOF
           )
           else
             TAG="v${VER}"
-            TITLE="${VER}"
+            if [ "$SS_VER" != "not bundled" ] && [ -n "$SS_VER" ]; then
+              TITLE="${VER} (SideStore ${SS_VER})"
+            else
+              TITLE="${VER}"
+            fi
 
             if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
               SUFFIX=$(date -u +%Y%m%d%H%M)
@@ -288,6 +313,11 @@ jobs:
             BUG_MD=$(bullets "$BUGFIXES")
             RELEASE_BODY=$(cat <<EOF
           # ${RELNAME:-LiveContainer Extended ${VER}}
+
+          | Component | Version |
+          |-----------|---------|
+          | **LiveContainer Extended** | `${VER}` |
+          | **Embedded SideStore** | `${SS_VER}` |
 
           ${SUMMARY}
 

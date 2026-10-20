@@ -101,6 +101,27 @@ build_sidestore() {
   rm -rf Payload/LiveContainer.app/Frameworks/SideStoreApp.framework
   mv tmp/Payload/SideStore.app Payload/LiveContainer.app/Frameworks/SideStoreApp.framework
 
+  # Record embedded SideStore version for release notes
+  SS_PLIST="Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Info.plist"
+  SS_VER=""
+  SS_BUILD=""
+  if [ -f "$SS_PLIST" ]; then
+    SS_VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$SS_PLIST" 2>/dev/null || true)
+    SS_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$SS_PLIST" 2>/dev/null || true)
+  fi
+  if [ -z "$SS_VER" ]; then SS_VER="unknown"; fi
+  if [ -n "$SS_BUILD" ] && [ "$SS_BUILD" != "$SS_VER" ]; then
+    echo "${SS_VER} (${SS_BUILD})" > sidestore_version.txt
+  else
+    echo "${SS_VER}" > sidestore_version.txt
+  fi
+  echo "    Embedded SideStore version: $(cat sidestore_version.txt)"
+  # Also expose to GitHub Actions if available
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "sidestore_version=$(cat sidestore_version.txt)" >> "$GITHUB_OUTPUT"
+  fi
+
+
   SS_BIN="Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore"
   if [ -f "$SS_BIN" ]; then
     ./dylibify "$SS_BIN" "${SS_BIN}.dylib"
