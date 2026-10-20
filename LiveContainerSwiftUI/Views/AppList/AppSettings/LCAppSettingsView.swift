@@ -25,6 +25,7 @@ struct LCAppSettingsView: View {
     private var appInfo : LCAppInfo
     
     @ObservedObject private var model : LCAppModel
+    @ObservedObject private var developerMode = LCDeveloperMode.shared
     
 
     @StateObject private var renameFolderInput = InputHelper()
@@ -47,6 +48,26 @@ struct LCAppSettingsView: View {
     
     var body: some View {
         Form {
+            
+            if developerMode.isEnabled {
+                Section {
+                    NavigationLink {
+                        LCAppIconPickerView(appModel: model)
+                    } label: {
+                        Label("Custom Icon", systemImage: "app.badge")
+                    }
+                    NavigationLink {
+                        LCInfoPlistEditorView(appModel: model)
+                    } label: {
+                        Label("Edit Info.plist", systemImage: "doc.badge.gearshape")
+                    }
+                } header: {
+                    Text("Developer Tools")
+                } footer: {
+                    Text("Icon and Info.plist changes apply to this guest app inside LiveContainer. Editing Info.plist can break the app if values are invalid.")
+                }
+            }
+
             Section {
                 HStack {
                     Text("lc.appSettings.bundleId".loc)

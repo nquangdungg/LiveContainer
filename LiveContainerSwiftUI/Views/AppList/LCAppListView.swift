@@ -1355,6 +1355,20 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
             return
         }
         
+        // Cross-app URL schemes: if another guest app registered this scheme, offer to open it.
+        let scheme = url.scheme?.lowercased() ?? ""
+        let isLiveContainerScheme = scheme.hasPrefix("livecontainer")
+        if !isLiveContainerScheme && !scheme.isEmpty {
+            let allApps = sharedModel.apps + sharedModel.hiddenApps
+            let guestMatches = LCGuestURLRouter.matches(for: url, in: allApps)
+            if !guestMatches.isEmpty {
+                Task {
+                    _ = await LCGuestURLRouter.handleIfGuest(url: url, apps: allApps, from: nil)
+                }
+                return
+            }
+        }
+        
         if url.scheme == "sidestore" && UserDefaults.sideStoreExist() {
             UserDefaults.standard.setValue(url.absoluteString, forKey: "launchAppUrlScheme")
             LCUtils.openSideStore(delegate: self)

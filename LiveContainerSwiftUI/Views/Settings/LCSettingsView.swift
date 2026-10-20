@@ -70,6 +70,9 @@ struct LCSettingsView: View {
     
     @EnvironmentObject private var sharedModel : SharedModel
     @ObservedObject private var theme = LCTheme.shared
+    @ObservedObject private var developerMode = LCDeveloperMode.shared
+    @ObservedObject private var appearanceEffects = LCAppearanceEffects.shared
+    @State private var confirmDevMode = false
     
     @State private var isViewAppeared = false
     
@@ -373,30 +376,61 @@ struct LCSettingsView: View {
                 LCAppLockSettingsSection()
 
                 Section {
-                    Button {
-                        LCOnboardingManager.shared.restartOnboarding()
-                    } label: {
-                        Label("Show Welcome & Setup Guide", systemImage: "hand.wave.fill")
+                    if developerMode.isEnabled {
+                        HStack {
+                            Label("Developer Mode", systemImage: "hammer.fill")
+                            Spacer()
+                            Text("On")
+                                .foregroundStyle(theme.accent)
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        Button("Turn Off Developer Mode", role: .destructive) {
+                            developerMode.disable()
+                        }
+                    } else {
+                        Button {
+                            confirmDevMode = true
+                        } label: {
+                            Label("Enable Developer Mode", systemImage: "hammer")
+                        }
                     }
                 } header: {
-                    Text("Setup Guide")
+                    Text("Developer")
                 } footer: {
-                    Text("Replay the first-run welcome screens (LocalDevVPN, pairing, SideStore login, certificate). Useful for testing or if you skipped setup earlier.")
+                    Text("Unlocks custom guest icons, Info.plist editor, and other advanced tools. Enabling requires an app restart.")
+                }
+                .alert("Enable Developer Mode?", isPresented: $confirmDevMode) {
+                    Button("Cancel", role: .cancel) {}
+                    Button("Enable & Restart", role: .destructive) {
+                        developerMode.requestEnableAndRestart()
+                    }
+                } message: {
+                    Text("LiveContainer will restart. After relaunch you will see a confirmation that Developer Mode is on.")
+                }
+
+                Section {
+                    Picker(selection: $appearanceEffects.effect) {
+                        ForEach(LCParticleEffect.allCases) { effect in
+                            Text(effect.rawValue).tag(effect)
+                        }
+                    } label: {
+                        Label("Background Effect", systemImage: "sparkles")
+                    }
+                } header: {
+                    Text("Atmosphere")
+                } footer: {
+                    Text("Optional decorative overlay. Snow is available in this release; more effects may be added later.")
+                }
+
+                Section {
+                    Text("Use Multitask windows to keep apps alive while switching. Minimize from the window title bar or PiP to set an app aside without force-closing it, then restore it from the multitask dock.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Temporary Close")
                 }
 
 
-                // MARK: About — LiveContainer Extended
-                Section {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .center, spacing: 12) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(theme.accent.opacity(0.15))
-                                    .frame(width: 52, height: 52)
-                                Image(systemName: "shippingbox.fill")
-                                    .font(.system(size: 22, weight: .semibold))
-                                    .foregroundStyle(theme.accent)
-                            }
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 6) {
                                     Text("LiveContainer")

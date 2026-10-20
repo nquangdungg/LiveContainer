@@ -15,8 +15,9 @@ struct LCTabView: View {
     
     @EnvironmentObject var sharedModel : SharedModel
     @ObservedObject private var theme = LCTheme.shared
+    @ObservedObject private var developerMode = LCDeveloperMode.shared
+    @ObservedObject private var appearanceEffects = LCAppearanceEffects.shared
     @ObservedObject private var appLock = LCAppLockManager.shared
-    @ObservedObject private var onboarding = LCOnboardingManager.shared
     @EnvironmentObject var sceneDelegate: SceneDelegate
     @State var shouldToggleMainWindowOpen = false
     @Environment(\.scenePhase) var scenePhase
@@ -54,10 +55,27 @@ struct LCTabView: View {
                 .tag(LCTabIdentifier.settings)
         }
         .tint(theme.accent)
-        if onboarding.isActive {
-            LCOnboardingFlowView()
-                .transition(.opacity)
-                .zIndex(20)
+        if appearanceEffects.effect == .snow {
+            LCSnowOverlay()
+                .zIndex(5)
+        }
+        if developerMode.showEnabledBanner {
+            VStack {
+                HStack(spacing: 10) {
+                    Image(systemName: "hammer.fill")
+                    Text("Developer Mode is on")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button("OK") { developerMode.dismissBanner() }
+                        .font(.subheadline.weight(.bold))
+                }
+                .padding(14)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                Spacer()
+            }
+            .zIndex(25)
         }
         if appLock.isLocked {
             LCAppLockView()
@@ -66,7 +84,6 @@ struct LCTabView: View {
         }
         } // ZStack
         .onAppear {
-            onboarding.evaluateShouldShow()
             appLock.lockIfNeeded()
 
             let appearance = UITabBarAppearance()
