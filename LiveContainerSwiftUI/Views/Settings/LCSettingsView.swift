@@ -370,6 +370,21 @@ struct LCSettingsView: View {
                     }
                 }
                 
+                LCAppLockSettingsSection()
+
+                Section {
+                    Button {
+                        LCOnboardingManager.shared.restartOnboarding()
+                    } label: {
+                        Label("Show Welcome & Setup Guide", systemImage: "hand.wave.fill")
+                    }
+                } header: {
+                    Text("Setup Guide")
+                } footer: {
+                    Text("Replay the first-run welcome screens (LocalDevVPN, pairing, SideStore login, certificate). Useful for testing or if you skipped setup earlier.")
+                }
+
+
                 // MARK: About — LiveContainer Extended
                 Section {
                     VStack(alignment: .leading, spacing: 14) {

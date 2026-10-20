@@ -12,12 +12,12 @@ on:
         required: false
         default: true
       release_channel:
-        description: "Release channel for manual runs"
+        description: "Release channel"
         type: choice
         options:
-          - nightly
           - stable
-        default: nightly
+          - nightly
+        default: stable
       version_bump:
         description: "Semver bump type"
         type: choice
@@ -27,6 +27,42 @@ on:
           - major
           - none
         default: patch
+      release_name:
+        description: "Release title (e.g. 4.3.0 — Onboarding & App Lock)"
+        type: string
+        required: false
+        default: ""
+      summary:
+        description: "Short summary (one paragraph)"
+        type: string
+        required: false
+        default: ""
+      features:
+        description: "New Features (one bullet per line)"
+        type: string
+        required: false
+        default: ""
+      improvements:
+        description: "Improvements (one bullet per line)"
+        type: string
+        required: false
+        default: ""
+      bug_fixes:
+        description: "Bug Fixes (one bullet per line)"
+        type: string
+        required: false
+        default: ""
+      notes:
+        description: "Extra notes / warnings"
+        type: string
+        required: false
+        default: ""
+      make_latest:
+        description: "Mark as latest release on GitHub"
+        type: boolean
+        required: false
+        default: true
+
 
 jobs:
   build:
@@ -67,7 +103,11 @@ jobs:
           BUMP="${{ github.event.inputs.version_bump }}"
           if [ -z "$BUMP" ]; then BUMP="patch"; fi
           # Pushes and nightly builds reuse the current version; stable dispatches can bump it.
-          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.release_channel }}" = "nightly" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BUMP="none"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            BUMP="patch"
+          elif [ "${{ inputs.release_channel }}" = "nightly" ]; then
             BUMP="none"
           fi
           IFS=. read -r MAJ MIN PAT <<EOF
@@ -206,8 +246,12 @@ jobs:
           fi
 
           CHANNEL="${{ inputs.release_channel }}"
-          if [ "${{ github.event_name }}" = "push" ] || [ -z "$CHANNEL" ]; then
-            CHANNEL="nightly"
+          if [ -z "$CHANNEL" ]; then
+            if [ "${{ github.event_name }}" = "push" ]; then
+              CHANNEL="stable"
+            else
+              CHANNEL="nightly"
+            fi
           fi
 
           git fetch --tags origin || true
@@ -232,22 +276,44 @@ jobs:
               echo "Tag collision: using fallback tag ${TAG}"
             fi
 
+            FEATURES="${{ inputs.features }}"
+            IMPROVEMENTS="${{ inputs.improvements }}"
+            BUGFIXES="${{ inputs.bug_fixes }}"
+            SUMMARY="${{ inputs.summary }}"
+            NOTES="${{ inputs.notes }}"
+            RELNAME="${{ inputs.release_name }}"
+            bullets() { echo "$1" | sed '/^[[:space:]]*$/d' | sed 's/^/- /'; }
+            FEAT_MD=$(bullets "$FEATURES")
+            IMP_MD=$(bullets "$IMPROVEMENTS")
+            BUG_MD=$(bullets "$BUGFIXES")
             RELEASE_BODY=$(cat <<EOF
-          # LiveContainer ${VER}
+          # ${RELNAME:-LiveContainer Extended ${VER}}
+
+          ${SUMMARY}
 
           > [!Warning]
-          > The standalone version requires **SideStore 0.6.2+** or **AltStore 2.2.1+** for installation.
-          > To install LiveContainer with built-in SideStore (`LiveContainer+SideStore.ipa`), please use [Impactor](https://github.com/khcrysalis/Impactor) or [iloader](https://github.com/nab138/iloader). See [our installation guide](https://livecontainer.github.io/docs/installation/lc_sidestore) for details.
+          > Standalone build needs **SideStore 0.6.2+** or **AltStore 2.2.1+**.
+          > For \`LiveContainer+SideStore.ipa\` use [Impactor](https://github.com/khcrysalis/Impactor) or [iloader](https://github.com/nab138/iloader).
 
-          # New Features
+          ## New Features
 
-          # Improvements
+          ${FEAT_MD:-- (none listed)}
 
-          # Bug Fixes
+          ## Improvements
 
-          # Localization
+          ${IMP_MD:-- (none listed)}
 
-          # Credits
+          ## Bug Fixes
+
+          ${BUG_MD:-- (none listed)}
+
+          ## Notes
+
+          ${NOTES:--}
+
+          ## Credits
+          - **Lead Developer:** Nguyen Quang Dung
+          - Based on [LiveContainer](https://github.com/LiveContainer/LiveContainer)
           EOF
           )
           fi

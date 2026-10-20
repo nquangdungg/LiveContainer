@@ -15,6 +15,8 @@ struct LCTabView: View {
     
     @EnvironmentObject var sharedModel : SharedModel
     @ObservedObject private var theme = LCTheme.shared
+    @ObservedObject private var appLock = LCAppLockManager.shared
+    @ObservedObject private var onboarding = LCOnboardingManager.shared
     @EnvironmentObject var sceneDelegate: SceneDelegate
     @State var shouldToggleMainWindowOpen = false
     @Environment(\.scenePhase) var scenePhase
@@ -23,6 +25,7 @@ struct LCTabView: View {
     let pub = NotificationCenter.default.publisher(for: UIScene.didDisconnectNotification)
     
     var body: some View {
+        ZStack {
         TabView(selection: $sharedModel.selectedTab) {
             if DataManager.shared.model.multiLCStatus != 2 {
                 LCSourcesView()
@@ -51,7 +54,21 @@ struct LCTabView: View {
                 .tag(LCTabIdentifier.settings)
         }
         .tint(theme.accent)
+        if onboarding.isActive {
+            LCOnboardingFlowView()
+                .transition(.opacity)
+                .zIndex(20)
+        }
+        if appLock.isLocked {
+            LCAppLockView()
+                .transition(.opacity)
+                .zIndex(30)
+        }
+        } // ZStack
         .onAppear {
+            onboarding.evaluateShouldShow()
+            appLock.lockIfNeeded()
+
             let appearance = UITabBarAppearance()
             appearance.configureWithDefaultBackground()
             UITabBar.appearance().standardAppearance = appearance
@@ -60,6 +77,11 @@ struct LCTabView: View {
             }
         }
 
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase != .active {
+                appLock.lockIfNeeded()
+            }
+        }
         .animation(.easeInOut(duration: 0.2), value: theme.accentPreset)
         .downloadAlert(helper: downloadHelper)
         .environmentObject(downloadHelper)

@@ -1059,14 +1059,89 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
     }
     
     func removeApp(app: LCAppModel) {
-        DispatchQueue.main.async {
-            sharedModel.apps.removeAll { now in
-                return app == now
+        // Grid/Compact used to only drop the row from the array — disk stayed.
+        // Route every layout through the same confirmed uninstall path as list banners.
+        Task { @MainActor in
+            await uninstallAppFully(app)
+        }
+    }
+    
+    @MainActor
+    private func uninstallAppFully(_ app: LCAppModel) async {
+        let displayName = app.appInfo.displayName() ?? app.displayName
+        let confirm = await presentSimpleConfirm(
+            title: "Uninstall App",
+            message: "Are you sure you want to uninstall \(displayName)?",
+            confirmTitle: "Uninstall",
+            isDestructive: true
+        )
+        guard confirm else { return }
+        
+        var removeData = false
+        let containers = app.appInfo.containers
+        if !containers.isEmpty {
+            removeData = await presentSimpleConfirm(
+                title: "Delete App Data",
+                message: "Also delete data containers for \(displayName)?",
+                confirmTitle: "Delete",
+                isDestructive: true
+            )
+        }
+        
+        do {
+            guard let bundlePath = app.appInfo.bundlePath() else {
+                throw CocoaError(.fileNoSuchFile)
             }
-            sharedModel.hiddenApps.removeAll { now in
-                return app == now
+            let fm = FileManager.default
+            try fm.removeItem(atPath: bundlePath)
+            
+            if removeData {
+                for container in containers {
+                    let dataUUID = container.folderName
+                    let dataURL = LCPath.dataPath.appendingPathComponent(dataUUID)
+                    if fm.fileExists(atPath: dataURL.path) {
+                        try? fm.removeItem(at: dataURL)
+                    }
+                    LCUtils.removeAppKeychain(dataUUID: dataUUID)
+                    DataManager.shared.model.appDataFolderNames.removeAll { $0 == dataUUID }
+                }
             }
             
+            sharedModel.apps.removeAll { $0 == app }
+            sharedModel.hiddenApps.removeAll { $0 == app }
+        } catch {
+            errorInfo = error.localizedDescription
+            errorShow = true
+        }
+    }
+    
+    @MainActor
+    private func presentSimpleConfirm(
+        title: String,
+        message: String,
+        confirmTitle: String,
+        isDestructive: Bool
+    ) async -> Bool {
+        await withCheckedContinuation { cont in
+            let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in
+                cont.resume(returning: false)
+            })
+            alert.addAction(UIAlertAction(
+                title: confirmTitle,
+                style: isDestructive ? .destructive : .default
+            ) { _ in
+                cont.resume(returning: true)
+            })
+            var presenter = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+                .first { $0.isKeyWindow }?
+                .rootViewController
+            while let presented = presenter?.presentedViewController {
+                presenter = presented
+            }
+            presenter?.present(alert, animated: true)
         }
     }
     
