@@ -137,7 +137,7 @@ struct LCAppIconPickerView: View {
     
     @ViewBuilder
     private var iconPreview: some View {
-        if let img = loadOverride() ?? appModel.appInfo.icon() {
+        if let img = loadOverride() ?? appModel.appInfo.iconIsDarkIcon(false) {
             Image(uiImage: img).resizable().aspectRatio(contentMode: .fill)
         } else {
             RoundedRectangle(cornerRadius: 16).fill(theme.accent.opacity(0.2))
