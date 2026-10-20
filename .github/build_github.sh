@@ -79,9 +79,10 @@ build_sidestore() {
   echo "    Downloading SideStore IPA..."
   rm -rf tmp/Payload tmp/SideStore.ipa
   mkdir -p tmp
-  wget -q -O tmp/SideStore.ipa \
+  # Timeouts so CI cannot hang forever on a bad GitHub download
+  wget --timeout=30 --tries=2 -q -O tmp/SideStore.ipa \
     "https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa" \
-    || wget -q -O tmp/SideStore.ipa \
+    || wget --timeout=30 --tries=2 -q -O tmp/SideStore.ipa \
     "https://github.com/SideStore/SideStore/releases/latest/download/SideStore.ipa" \
     || true
 
@@ -195,3 +196,81 @@ if [ $SS_RC -ne 0 ]; then
 fi
 
 echo "==> Done"
+
+
+# ---------- Optional: +StikDebug (full IPA embed, SideStore-style) ----------
+build_stikdebug() {
+  echo "==> Embedding full StikDebug into ${SCHEME}+StikDebug.ipa (or combined)"
+
+  # Work from a fresh Payload copy of standalone if needed
+  if [ ! -d Payload/LiveContainer.app ]; then
+    echo "WARNING: Payload missing for StikDebug embed"
+    return 1
+  fi
+
+  echo "    Downloading StikDebug IPA..."
+  rm -rf tmp/stik tmp/StikDebug.ipa
+  mkdir -p tmp/stik
+  # Latest release asset name varies — resolve via API then fallback tags
+  STIK_URL=$(curl -fsSL --max-time 20 https://api.github.com/repos/StikDebug/StikDebug/releases/latest \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(next((a['browser_download_url'] for a in d.get('assets',[]) if a['name'].endswith('.ipa')),''))" \
+    2>/dev/null || true)
+  if [ -z "$STIK_URL" ]; then
+    STIK_URL="https://github.com/StikDebug/StikDebug/releases/download/3.1.15/StikDebug-3.1.15.ipa"
+  fi
+  wget --timeout=45 --tries=2 -q -O tmp/StikDebug.ipa "$STIK_URL" || true
+  if [ ! -f tmp/StikDebug.ipa ]; then
+    echo "WARNING: Could not download StikDebug.ipa — skipping embed"
+    return 1
+  fi
+
+  (cd tmp/stik && unzip -qo ../StikDebug.ipa)
+  APP_DIR=$(find tmp/stik/Payload -maxdepth 1 -type d -name '*.app' | head -1)
+  if [ -z "$APP_DIR" ] || [ ! -d "$APP_DIR" ]; then
+    echo "WARNING: StikDebug .app missing in IPA"
+    return 1
+  fi
+
+  mkdir -p Payload/LiveContainer.app/Frameworks
+  rm -rf Payload/LiveContainer.app/Frameworks/StikDebugApp.framework
+  mv "$APP_DIR" Payload/LiveContainer.app/Frameworks/StikDebugApp.framework
+
+  # dylibify main binary if present (same approach as SideStore)
+  STIK_BIN=$(find Payload/LiveContainer.app/Frameworks/StikDebugApp.framework -maxdepth 1 -type f -perm -111 | head -1)
+  if [ -n "$STIK_BIN" ] && [ -f ./dylibify ]; then
+    ./dylibify "$STIK_BIN" "${STIK_BIN}.dylib" 2>/dev/null || true
+    if [ -f "${STIK_BIN}.dylib" ]; then
+      rm -f "$STIK_BIN"
+      mv "${STIK_BIN}.dylib" "$STIK_BIN"
+      ldid -S"" "$STIK_BIN" 2>/dev/null || true
+    fi
+  fi
+
+  if [ -f .github/stik/LCAppInfo.plist ]; then
+    cp .github/stik/LCAppInfo.plist Payload/LiveContainer.app/Frameworks/StikDebugApp.framework/
+  fi
+
+  STIK_PLIST="Payload/LiveContainer.app/Frameworks/StikDebugApp.framework/Info.plist"
+  STIK_VER="unknown"
+  if [ -f "$STIK_PLIST" ]; then
+    STIK_VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$STIK_PLIST" 2>/dev/null || echo unknown)
+  fi
+  echo "$STIK_VER" > stikdebug_version.txt
+  echo "    Embedded StikDebug version: $STIK_VER"
+  return 0
+}
+
+
+# After default pack flow, attempt StikDebug embed on a copy of standalone Payload if present
+if [ -f "${SCHEME}.ipa" ]; then
+  rm -rf Payload
+  unzip -qo "${SCHEME}.ipa"
+  if build_stikdebug; then
+    # Produce LiveContainer+StikDebug.ipa and also refresh +SideStore if that path reuses Payload
+    rm -f "${SCHEME}+StikDebug.ipa"
+    zip -qry "${SCHEME}+StikDebug.ipa" Payload
+    echo "==> Wrote ${SCHEME}+StikDebug.ipa"
+    # If +SideStore exists as only SideStore, user may want both; optional combined name left to CI
+  fi
+  rm -rf Payload
+fi

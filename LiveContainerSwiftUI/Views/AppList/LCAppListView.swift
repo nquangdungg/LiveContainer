@@ -1198,6 +1198,9 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
         if appFound == nil && bundleId == "builtinSideStore" {
             appFound = LCAppModel(appInfo: BuiltInSideStoreAppInfo.shared)
         }
+        if appFound == nil && bundleId == "builtinStikDebug" {
+            appFound = LCAppModel(appInfo: BuiltInStikDebugAppInfo.shared)
+        }
         
         if isFoundAppLocked && !sharedModel.isHiddenAppUnlocked {
             do {

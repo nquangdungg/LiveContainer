@@ -527,3 +527,20 @@ extension LCUtils {
         }
     }
 }
+
+
+
+    @MainActor
+    public static func openBuiltInStikDebug(delegate: LCAppModelDelegate? = nil) async {
+        guard BuiltInStikDebugAppInfo.isEmbedded else {
+            // Fallback: open system/external StikDebug via URL
+            _ = await LCStikIntegration.shared.openEnableJIT()
+            return
+        }
+        let app = LCAppModel(appInfo: BuiltInStikDebugAppInfo.shared, delegate: delegate)
+        do {
+            try await app.runApp(bundleIdOverride: "builtinStikDebug")
+        } catch {
+            print("openBuiltInStikDebug: \(error)")
+        }
+    }

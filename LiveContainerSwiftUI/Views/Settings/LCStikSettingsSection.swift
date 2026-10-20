@@ -2,7 +2,7 @@
 //  LCStikSettingsSection.swift
 //  LiveContainerSwiftUI
 //
-//  Minimal StikDebug settings: status, pairing, enable JIT.
+//  Full StikDebug when embedded (SideStore-style); pairing + enable JIT helpers.
 //
 
 import SwiftUI
@@ -16,14 +16,24 @@ struct LCStikSettingsSection: View {
     @State private var alertMessage = ""
     @State private var showAlert = false
     
+    private var embedded: Bool { BuiltInStikDebugAppInfo.isEmbedded }
+    
     var body: some View {
         Section {
             HStack {
-                Text("StikDebug")
+                Text("Built-in StikDebug")
                 Spacer()
-                Text(stik.isInstalled ? "Installed" : "Not found")
+                Text(embedded ? "Embedded" : "Not in this IPA")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(stik.isInstalled ? theme.success : theme.secondaryText)
+                    .foregroundStyle(embedded ? theme.success : theme.secondaryText)
+            }
+            
+            if embedded {
+                Button {
+                    Task { await LCUtils.openBuiltInStikDebug() }
+                } label: {
+                    Label("Open StikDebug", systemImage: "bolt.circle.fill")
+                }
             }
             
             HStack {
@@ -34,9 +44,7 @@ struct LCStikSettingsSection: View {
                     .foregroundStyle(stik.hasPairingFile ? theme.success : theme.secondaryText)
             }
             
-            Button {
-                picking = true
-            } label: {
+            Button { picking = true } label: {
                 Label("Import Pairing File…", systemImage: "doc.badge.plus")
             }
             
@@ -54,19 +62,17 @@ struct LCStikSettingsSection: View {
             Button {
                 Task {
                     let ok = await stik.openEnableJIT()
-                    if ok {
-                        present("StikDebug", "Opened enable-JIT request.")
-                    } else {
-                        present("StikDebug", "Could not open StikDebug. Install it first, or use JIT Enabler → StikDebug (Another LiveContainer/Multitask).")
-                    }
+                    present("StikDebug", ok ? "Sent enable-JIT request." : "Could not open StikDebug URL.")
                 }
             } label: {
-                Label("Enable JIT", systemImage: "bolt.fill")
+                Label("Request Enable JIT", systemImage: "bolt.fill")
             }
         } header: {
             Text("StikDebug")
         } footer: {
-            Text("iOS 17.4+. Import a pairing file, connect LocalDevVPN, then enable JIT. Prefer Settings → JIT Enabler → StikDebug for guest apps.")
+            Text(embedded
+                 ? "This build includes the full StikDebug app (embedded like SideStore). Open it from here or run it as a guest. iOS 17.4+, LocalDevVPN, and a pairing file are still required for JIT."
+                 : "This IPA has no embedded StikDebug. Install StikDebug separately, or build LiveContainer+StikDebug.ipa from CI.")
         }
         .onAppear { stik.refreshStatus() }
         .betterFileImporter(

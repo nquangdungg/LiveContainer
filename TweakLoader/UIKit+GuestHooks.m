@@ -780,7 +780,7 @@ static LCControlAppURLHandling LCHandleControlAppURL(NSURL *url, NSString** modi
 
 // =============================================================================
 // LiveContainer Extended: Double-tap status bar → return to LiveContainer
-// Classic/guest process — use method swizzle (safe inside injected dylib)
+// Guest process — method swizzle with delayed single-tap (reliable double-tap)
 // =============================================================================
 
 @interface UIStatusBarManager (LCGuestDoubleTap)
@@ -790,10 +790,11 @@ static LCControlAppURLHandling LCHandleControlAppURL(NSURL *url, NSString** modi
 
 @implementation UIStatusBarManager (LCGuestDoubleTap)
 
-- (void)lc_handleTapAction:(UIAction *)action {
-    static NSTimeInterval lastTap = 0;
-    static const NSTimeInterval kWindow = 0.35;
+static NSTimeInterval LCGuestPendingTapTime = 0;
+static dispatch_block_t LCGuestPendingSingleTapBlock = nil;
+static const NSTimeInterval kLCGuestDoubleTapWindow = 0.50;
 
+- (void)lc_handleTapAction:(UIAction *)action {
     BOOL enabled = YES;
     Class sharedUtils = NSClassFromString(@"LCSharedUtils");
     NSString *groupId = nil;
@@ -810,37 +811,57 @@ static LCControlAppURLHandling LCHandleControlAppURL(NSURL *url, NSString** modi
         enabled = [defs boolForKey:@"LCDoubleTapStatusBarToExit"];
     }
 
-    if (enabled) {
-        NSTimeInterval now = CFAbsoluteTimeGetCurrent();
-        if (lastTap > 0 && (now - lastTap) <= kWindow) {
-            lastTap = 0;
-            UIImpactFeedbackGenerator *gen =
-                [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
-            [gen impactOccurred];
-            if ([sharedUtils respondsToSelector:@selector(launchToGuestAppWithClassicMode:)]) {
-                // classicMode 0 = relaunch LiveContainer
-                [sharedUtils launchToGuestAppWithClassicMode:0];
-            }
-            return; // consume double-tap
-        }
-        lastTap = now;
+    if (!enabled) {
+        [self lc_handleTapAction:action]; // original after swizzle
+        return;
     }
 
-    // Single tap → original implementation (swizzled)
-    [self lc_handleTapAction:action];
+    NSTimeInterval now = CFAbsoluteTimeGetCurrent();
+    if (LCGuestPendingSingleTapBlock != nil &&
+        LCGuestPendingTapTime > 0 &&
+        (now - LCGuestPendingTapTime) <= kLCGuestDoubleTapWindow) {
+        dispatch_block_cancel(LCGuestPendingSingleTapBlock);
+        LCGuestPendingSingleTapBlock = nil;
+        LCGuestPendingTapTime = 0;
+
+        UIImpactFeedbackGenerator *gen =
+            [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+        [gen prepare];
+        [gen impactOccurred];
+
+        if ([sharedUtils respondsToSelector:@selector(launchToGuestAppWithClassicMode:)]) {
+            [sharedUtils launchToGuestAppWithClassicMode:0];
+        }
+        return;
+    }
+
+    if (LCGuestPendingSingleTapBlock) {
+        dispatch_block_cancel(LCGuestPendingSingleTapBlock);
+        LCGuestPendingSingleTapBlock = nil;
+    }
+    LCGuestPendingTapTime = now;
+    __weak typeof(self) weakSelf = self;
+    UIAction *captured = action;
+    LCGuestPendingSingleTapBlock = dispatch_block_create(0, ^{
+        LCGuestPendingSingleTapBlock = nil;
+        LCGuestPendingTapTime = 0;
+        [weakSelf lc_handleTapAction:captured]; // original single-tap
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kLCGuestDoubleTapWindow * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(),
+                   LCGuestPendingSingleTapBlock);
 }
 
 @end
 
 __attribute__((constructor))
 static void LCGuestDoubleTapStatusBarInit(void) {
-    // Only when running as a guest app inside LiveContainer
     if (!NSUserDefaults.lcGuestAppId) return;
 
-    if (@available(iOS 16.0, *)) {
+    // handleTapAction: exists from iOS 13; status bar manager path used widely on 15+
+    if (@available(iOS 15.0, *)) {
         Class cls = NSClassFromString(@"UIStatusBarManager");
         if (!cls) return;
-        // Use project swizzle() helper from utils.h
         SEL orig = @selector(handleTapAction:);
         SEL hook = @selector(lc_handleTapAction:);
         if (class_getInstanceMethod(cls, orig) && class_getInstanceMethod(cls, hook)) {
@@ -848,3 +869,4 @@ static void LCGuestDoubleTapStatusBarInit(void) {
         }
     }
 }
+

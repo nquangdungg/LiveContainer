@@ -14,68 +14,67 @@ on:
       release_channel:
         description: "Release channel"
         type: choice
-        options:
-          - stable
-          - nightly
+        options: [stable, nightly]
         default: stable
       version_bump:
         description: "Semver bump type"
         type: choice
-        options:
-          - patch
-          - minor
-          - major
-          - none
+        options: [patch, minor, major, none]
         default: patch
+      max_build_attempts:
+        description: "Retry whole archive+pack until success (max)"
+        type: number
+        required: false
+        default: 5
       release_name:
-        description: "Release title (e.g. 4.3.0 — Onboarding & App Lock)"
+        description: "Release title"
         type: string
         required: false
         default: ""
       summary:
-        description: "Short summary (one paragraph)"
+        description: "Short summary"
         type: string
         required: false
         default: ""
       features:
-        description: "New Features (one bullet per line)"
+        description: "New Features (one per line)"
         type: string
         required: false
         default: ""
       improvements:
-        description: "Improvements (one bullet per line)"
+        description: "Improvements (one per line)"
         type: string
         required: false
         default: ""
       bug_fixes:
-        description: "Bug Fixes (one bullet per line)"
+        description: "Bug Fixes (one per line)"
         type: string
         required: false
         default: ""
       notes:
-        description: "Extra notes / warnings"
+        description: "Extra notes"
         type: string
         required: false
         default: ""
-      make_latest:
-        description: "Mark as latest release on GitHub"
-        type: boolean
-        required: false
-        default: true
 
+concurrency:
+  group: lc-build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
     name: Build LiveContainer IPA
     runs-on: macos-latest
+    timeout-minutes: 120
     env:
       scheme: LiveContainer
       archive_path: archive
     outputs:
       has_sidestore: ${{ steps.pack.outputs.has_sidestore }}
+      has_stik: ${{ steps.pack.outputs.has_stik }}
       sidestore_version: ${{ steps.pack.outputs.sidestore_version }}
+      stik_version: ${{ steps.pack.outputs.stik_version }}
       version: ${{ steps.version.outputs.version }}
-
     steps:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -92,29 +91,20 @@ jobs:
         id: version
         run: |
           set -e
-          BASE="4.1.8"
-          if [ -f VERSION ]; then
-            BASE=$(tr -d '[:space:]' < VERSION)
-          fi
-          # Prefer latest semver tag vX.Y.Z if present
+          BASE="5.0.0"
+          if [ -f VERSION ]; then BASE=$(tr -d '[:space:]' < VERSION); fi
           LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1 || true)
-          if [ -n "$LATEST_TAG" ]; then
-            BASE="${LATEST_TAG#v}"
-          fi
+          if [ -n "$LATEST_TAG" ]; then BASE="${LATEST_TAG#v}"; fi
           BUMP="${{ github.event.inputs.version_bump }}"
           if [ -z "$BUMP" ]; then BUMP="patch"; fi
-          # Pushes and nightly builds reuse the current version; stable dispatches can bump it.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BUMP="none"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            BUMP="patch"
-          elif [ "${{ inputs.release_channel }}" = "nightly" ]; then
-            BUMP="none"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then BUMP="none"
+          elif [ "${{ github.event_name }}" = "push" ]; then BUMP="patch"
+          elif [ "${{ inputs.release_channel }}" = "nightly" ]; then BUMP="none"
           fi
           IFS=. read -r MAJ MIN PAT <<EOF
           $BASE
           EOF
-          MAJ=${MAJ:-4}; MIN=${MIN:-1}; PAT=${PAT:-8}
+          MAJ=${MAJ:-5}; MIN=${MIN:-0}; PAT=${PAT:-0}
           case "$BUMP" in
             major) MAJ=$((MAJ+1)); MIN=0; PAT=0 ;;
             minor) MIN=$((MIN+1)); PAT=0 ;;
@@ -125,12 +115,7 @@ jobs:
           VER="${MAJ}.${MIN}.${PAT}"
           echo "version=$VER" >> "$GITHUB_OUTPUT"
           echo "$VER" > VERSION
-          echo "==> Version: $VER (bump=$BUMP, base was $BASE)"
-          # Inject into Info.plist if present
-          if [ -f LiveContainer/Info.plist ]; then
-            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VER" LiveContainer/Info.plist || true
-            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VER" LiveContainer/Info.plist || true
-          fi
+          echo "==> Version: $VER"
 
       - name: Resolve project
         id: proj
@@ -143,52 +128,91 @@ jobs:
             echo "file=$(ls -A | grep -i '\.xcodeproj$' | head -1)" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Archive
-        run: |
-          set -o pipefail
-          xcodebuild archive \
-            -archivePath "$archive_path" \
-            -scheme "$scheme" \
-            -${{ steps.proj.outputs.filetype }} "${{ steps.proj.outputs.file }}" \
-            -sdk iphoneos \
-            -arch arm64 \
-            -configuration Release \
-            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
-            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.version }}" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY=- \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=YES \
-            DEVELOPMENT_TEAM= \
-            PROVISIONING_PROFILE_SPECIFIER= \
-            | xcpretty
-          echo "==> Archive tree:"
-          find "${archive_path}.xcarchive/Products" -maxdepth 4 -type d || true
-
-      - name: Pack IPA
+      - name: Archive + Pack (retry until success)
         id: pack
+        timeout-minutes: 100
         run: |
+          set -euo pipefail
+          MAX="${{ github.event.inputs.max_build_attempts }}"
+          if [ -z "$MAX" ] || [ "$MAX" -lt 1 ]; then MAX=5; fi
           chmod +x .github/build_github.sh
-          sh .github/build_github.sh
-          ls -lh *.ipa || true
+
+          ATTEMPT=1
+          while [ "$ATTEMPT" -le "$MAX" ]; do
+            echo ""
+            echo "========== BUILD ATTEMPT ${ATTEMPT}/${MAX} (commit ${GITHUB_SHA}) =========="
+
+            rm -rf "${archive_path}.xcarchive" Payload tmp
+            rm -f "${scheme}.ipa" "${scheme}+SideStore.ipa" "${scheme}+StikDebug.ipa"
+
+            set +e
+            xcodebuild archive \
+              -archivePath "$archive_path" \
+              -scheme "$scheme" \
+              -${{ steps.proj.outputs.filetype }} "${{ steps.proj.outputs.file }}" \
+              -sdk iphoneos \
+              -arch arm64 \
+              -configuration Release \
+              MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+              CURRENT_PROJECT_VERSION="${{ steps.version.outputs.version }}" \
+              CODE_SIGN_STYLE=Manual \
+              CODE_SIGN_IDENTITY=- \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=YES \
+              DEVELOPMENT_TEAM= \
+              PROVISIONING_PROFILE_SPECIFIER= \
+              | xcpretty
+            ARCHIVE_RC=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$ARCHIVE_RC" -ne 0 ]; then
+              echo "Archive failed (rc=$ARCHIVE_RC) on attempt ${ATTEMPT}"
+              if [ "$ATTEMPT" -eq "$MAX" ]; then exit 1; fi
+              sleep $((ATTEMPT * 20))
+              ATTEMPT=$((ATTEMPT + 1))
+              continue
+            fi
+
+            set +e
+            sh .github/build_github.sh
+            PACK_RC=$?
+            set -e
+
+            if [ -f "${scheme}.ipa" ]; then
+              echo "==> SUCCESS on attempt ${ATTEMPT}: LiveContainer.ipa ready"
+              ls -lh *.ipa || true
+              break
+            fi
+
+            echo "Pack failed (rc=$PACK_RC) — no LiveContainer.ipa on attempt ${ATTEMPT}"
+            if [ "$ATTEMPT" -eq "$MAX" ]; then
+              echo "ERROR: exhausted ${MAX} attempts without LiveContainer.ipa"
+              exit 1
+            fi
+            sleep $((ATTEMPT * 20))
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
           if [ -f "${scheme}+SideStore.ipa" ]; then
             echo "has_sidestore=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_sidestore=false" >> "$GITHUB_OUTPUT"
           fi
-          if [ -f sidestore_version.txt ]; then
-            SS_VER=$(tr -d '[:space:]' < sidestore_version.txt)
+          if [ -f "${scheme}+StikDebug.ipa" ]; then
+            echo "has_stik=true" >> "$GITHUB_OUTPUT"
           else
-            SS_VER="not bundled"
+            echo "has_stik=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "sidestore_version=$SS_VER" >> "$GITHUB_OUTPUT"
-          echo "==> LiveContainer version: ${{ steps.version.outputs.version }}"
-          echo "==> SideStore embedded: $SS_VER"
-          # Upload version stamp as artifact helper
-          {
-            echo "livecontainer=${{ steps.version.outputs.version }}"
-            echo "sidestore=$SS_VER"
-          } > build_versions.txt
+          if [ -f sidestore_version.txt ]; then
+            echo "sidestore_version=$(tr -d '\r\n' < sidestore_version.txt)" >> "$GITHUB_OUTPUT"
+          else
+            echo "sidestore_version=not bundled" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -f stikdebug_version.txt ]; then
+            echo "stik_version=$(tr -d '\r\n' < stikdebug_version.txt)" >> "$GITHUB_OUTPUT"
+          else
+            echo "stik_version=not bundled" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload LiveContainer.ipa
         uses: actions/upload-artifact@v4
@@ -207,14 +231,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload archive (debug)
-        if: failure()
+      - name: Upload LiveContainer+StikDebug.ipa
+        if: steps.pack.outputs.has_stik == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: archive-debug
-          path: ${{ env.archive_path }}.xcarchive
-          if-no-files-found: ignore
-          retention-days: 5
+          name: LiveContainer+StikDebug.ipa
+          path: LiveContainer+StikDebug.ipa
+          if-no-files-found: warn
+          retention-days: 14
 
   release:
     name: Publish Release
@@ -231,217 +255,104 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout (for VERSION commit optional + tags)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # ensure tags and full history available for changelog
+          fetch-depth: 0
 
-      - name: Download LiveContainer.ipa
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: LiveContainer.ipa
 
-      - name: Download +SideStore (optional)
+      - uses: actions/download-artifact@v4
         continue-on-error: true
-        uses: actions/download-artifact@v4
         with:
           name: LiveContainer+SideStore.ipa
 
-      - name: Prepare release data (tag, changelog, files)
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: LiveContainer+StikDebug.ipa
+
+      - name: Prepare release
         id: prep
         run: |
           set -euo pipefail
-
-          # Version from build job
           VER="${{ needs.build.outputs.version }}"
-          SS_VER="${{ needs.build.outputs.sidestore_version }}"
-          if [ -z "$SS_VER" ]; then SS_VER="not bundled"; fi
-          if [ -z "$VER" ]; then
-            echo "No version found from build job; aborting release prep"
-            exit 1
-          fi
-
+          SS="${{ needs.build.outputs.sidestore_version }}"
+          ST="${{ needs.build.outputs.stik_version }}"
           CHANNEL="${{ inputs.release_channel }}"
           if [ -z "$CHANNEL" ]; then
-            if [ "${{ github.event_name }}" = "push" ]; then
-              CHANNEL="stable"
-            else
-              CHANNEL="nightly"
-            fi
+            if [ "${{ github.event_name }}" = "push" ]; then CHANNEL="stable"; else CHANNEL="nightly"; fi
           fi
-
-          git fetch --tags origin || true
           if [ "$CHANNEL" = "nightly" ]; then
             TAG="nightly"
-            TITLE="Nightly Release @ $(date -u +%Y%m%d)"
-            COMMIT_MSG=$(git log -1 --pretty=%s)
-            RELEASE_BODY=$(cat <<EOF
-          Commit: [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
-          Message: ${COMMIT_MSG}
-
-          | Component | Version |
-          |-----------|---------|
-          | **LiveContainer Extended** | `${VER}` |
-          | **Embedded SideStore** | `${SS_VER}` |
-
-          This is a nightly release [created automatically with GitHub Actions workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
-          EOF
-          )
+            TITLE="${VER}"
           else
             TAG="v${VER}"
-            if [ "$SS_VER" != "not bundled" ] && [ -n "$SS_VER" ]; then
-              TITLE="${VER} (SideStore ${SS_VER})"
-            else
-              TITLE="${VER}"
-            fi
-
+            TITLE="${{ inputs.release_name }}"
+            if [ -z "$TITLE" ]; then TITLE="${VER}"; fi
             if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
-              SUFFIX=$(date -u +%Y%m%d%H%M)
-              TAG="${TAG}-${SUFFIX}"
-              echo "Tag collision: using fallback tag ${TAG}"
-            fi
-
-            FEATURES="${{ inputs.features }}"
-            IMPROVEMENTS="${{ inputs.improvements }}"
-            BUGFIXES="${{ inputs.bug_fixes }}"
-            SUMMARY="${{ inputs.summary }}"
-            NOTES="${{ inputs.notes }}"
-            RELNAME="${{ inputs.release_name }}"
-            bullets() { echo "$1" | sed '/^[[:space:]]*$/d' | sed 's/^/- /'; }
-            FEAT_MD=$(bullets "$FEATURES")
-            IMP_MD=$(bullets "$IMPROVEMENTS")
-            BUG_MD=$(bullets "$BUGFIXES")
-            RELEASE_BODY=$(cat <<EOF
-          # ${RELNAME:-LiveContainer Extended ${VER}}
-
-          | Component | Version |
-          |-----------|---------|
-          | **LiveContainer Extended** | `${VER}` |
-          | **Embedded SideStore** | `${SS_VER}` |
-
-          ${SUMMARY}
-
-          > [!Warning]
-          > Standalone build needs **SideStore 0.6.2+** or **AltStore 2.2.1+**.
-          > For \`LiveContainer+SideStore.ipa\` use [Impactor](https://github.com/khcrysalis/Impactor) or [iloader](https://github.com/nab138/iloader).
-
-          ## New Features
-
-          ${FEAT_MD:-- (none listed)}
-
-          ## Improvements
-
-          ${IMP_MD:-- (none listed)}
-
-          ## Bug Fixes
-
-          ${BUG_MD:-- (none listed)}
-
-          ## Notes
-
-          ${NOTES:--}
-
-          ## Credits
-          - **Lead Developer:** Nguyen Quang Dung
-          - Based on [LiveContainer](https://github.com/LiveContainer/LiveContainer)
-          EOF
-          )
-          fi
-
-          # Prepare files list for later upload
-          FILES=""
-          if [ -f "LiveContainer.ipa" ]; then
-            FILES="${FILES}LiveContainer.ipa"
-          fi
-          if [ -f "LiveContainer+SideStore.ipa" ]; then
-            if [ -n "${FILES}" ]; then
-              FILES="${FILES}\nLiveContainer+SideStore.ipa"
-            else
-              FILES="LiveContainer+SideStore.ipa"
+              TAG="${TAG}-$(date -u +%Y%m%d%H%M)"
             fi
           fi
-
-          # export outputs
-          echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
-          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          {
+            echo "# LiveContainer Extended ${VER}"
+            echo ""
+            echo "| Component | Version |"
+            echo "|-----------|---------|"
+            echo "| **LiveContainer Extended** | \`${VER}\` |"
+            echo "| **Embedded SideStore** | \`${SS}\` |"
+            echo "| **Embedded StikDebug** | \`${ST}\` |"
+            echo ""
+            echo "${{ inputs.summary }}"
+            echo ""
+            echo "## New Features"
+            echo "${{ inputs.features }}" | sed '/^$/d' | sed 's/^/- /' || echo "- (none)"
+            echo ""
+            echo "## Improvements"
+            echo "${{ inputs.improvements }}" | sed '/^$/d' | sed 's/^/- /' || echo "- (none)"
+            echo ""
+            echo "## Bug Fixes"
+            echo "${{ inputs.bug_fixes }}" | sed '/^$/d' | sed 's/^/- /' || echo "- (none)"
+            echo ""
+            echo "${{ inputs.notes }}"
+            echo ""
+            echo "## Credits"
+            echo "- **Lead Developer:** Nguyen Quang Dung"
+            echo "- LiveContainer · SideStore · StikDebug"
+          } > release_body.txt
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
-          # We export body via a file because of possible multiline issues
-          echo "${RELEASE_BODY}" > release_body.txt
-          echo "files<<EOF" >> "$GITHUB_OUTPUT"
-          if [ -n "${FILES}" ]; then
-            printf "%b\n" "${FILES}" >> "$GITHUB_OUTPUT"
-          fi
-          echo "EOF" >> "$GITHUB_OUTPUT"
-          # Save body file path to outputs (the following step will use this)
-          echo "body_path=release_body.txt" >> "$GITHUB_OUTPUT"
+          echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
 
-      - name: Install gh (GitHub CLI)
+      - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ "$(uname)" == "Darwin" ]]; then
-            brew install gh || true
-          else
-            # Install gh on ubuntu
-            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-            sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-            sudo apt-get update
-            sudo apt-get install -y gh
-          fi
-          gh --version
-
-      - name: Create GitHub Release (using gh)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          CHANNEL="${{ steps.prep.outputs.channel }}"
           TAG="${{ steps.prep.outputs.tag }}"
           TITLE="${{ steps.prep.outputs.title }}"
-          NOTES_FILE="${{ steps.prep.outputs.body_path }}"
-          FILES="${{ steps.prep.outputs.files }}"
+          CHANNEL="${{ steps.prep.outputs.channel }}"
+          ASSETS=(LiveContainer.ipa)
+          [ -f LiveContainer+SideStore.ipa ] && ASSETS+=(LiveContainer+SideStore.ipa)
+          [ -f LiveContainer+StikDebug.ipa ] && ASSETS+=(LiveContainer+StikDebug.ipa)
+          test -f LiveContainer.ipa
 
-          # build assets array from newline-separated FILES
-          ASSETS=()
-          if [ -n "$FILES" ]; then
-            IFS=$'\n' read -r -a ASSETS <<< "$FILES"
-          fi
-
-          if [ "${CHANNEL}" = "nightly" ]; then
+          if [ "$CHANNEL" = "nightly" ]; then
             git tag -f "$TAG" "$GITHUB_SHA"
             git push origin "refs/tags/${TAG}" --force
-          fi
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; updating notes and assets"
-            if [ "${CHANNEL}" = "nightly" ]; then
-              gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" --prerelease
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release edit "$TAG" --title "$TITLE" --notes-file release_body.txt --prerelease
+              for a in "${ASSETS[@]}"; do gh release upload "$TAG" "$a" --clobber; done
             else
-              gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE"
-            fi
-            if [ "${#ASSETS[@]}" -gt 0 ]; then
-              for a in "${ASSETS[@]}"; do
-                if [ -f "$a" ]; then
-                  gh release upload "$TAG" "$a" --clobber
-                fi
-              done
+              gh release create "$TAG" --title "$TITLE" --notes-file release_body.txt --prerelease "${ASSETS[@]}"
             fi
           else
-            echo "Creating release $TAG"
-            if [ "${#ASSETS[@]}" -gt 0 ]; then
-              if [ "${CHANNEL}" = "nightly" ]; then
-                gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" --prerelease "${ASSETS[@]}"
-              else
-                gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" "${ASSETS[@]}"
-              fi
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release edit "$TAG" --title "$TITLE" --notes-file release_body.txt
+              for a in "${ASSETS[@]}"; do gh release upload "$TAG" "$a" --clobber; done
             else
-              if [ "${CHANNEL}" = "nightly" ]; then
-                gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE" --prerelease
-              else
-                gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE"
-              fi
+              gh release create "$TAG" --title "$TITLE" --notes-file release_body.txt --latest "${ASSETS[@]}"
             fi
           fi
+          echo "Released $TAG with ${ASSETS[*]}"
