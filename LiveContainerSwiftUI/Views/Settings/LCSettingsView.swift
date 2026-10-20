@@ -432,33 +432,33 @@ struct LCSettingsView: View {
                     Text("Temporary Close")
                 }
 
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 6) {
-                                    Text("LiveContainer")
-                                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                                    Text("Extended")
-                                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                                        .foregroundStyle(theme.accent)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 2)
-                                        .background(theme.accent.opacity(0.12))
-                                        .clipShape(Capsule())
-                                    Text("Fork")
-                                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                                        .foregroundStyle(theme.accentOpposite)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 2)
-                                        .background(theme.accentOpposite.opacity(0.12))
-                                        .clipShape(Capsule())
-                                }
-                                Text("Version \(extendedVersionString)")
-                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Text("LiveContainer")
+                                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                                Text("Extended")
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
                                     .foregroundStyle(theme.accent)
-                                Text("An extended implementation of LiveContainer")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2)
+                                    .background(theme.accent.opacity(0.12))
+                                    .clipShape(Capsule())
+                                Text("Fork")
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .foregroundStyle(theme.accentOpposite)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2)
+                                    .background(theme.accentOpposite.opacity(0.12))
+                                    .clipShape(Capsule())
                             }
+                            Text("Version \(extendedVersionString)")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(theme.accent)
+                            Text("An extended implementation of LiveContainer")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
                         }
                         
                         Divider()

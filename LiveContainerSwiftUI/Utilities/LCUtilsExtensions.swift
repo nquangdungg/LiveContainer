@@ -526,14 +526,10 @@ extension LCUtils {
             try await sideStoreApp.runApp(bundleIdOverride: "builtinSideStore", urlStr: urlStr)
         }
     }
-}
-
-
 
     @MainActor
-    public static func openBuiltInStikDebug(delegate: LCAppModelDelegate? = nil) async {
+    static func openBuiltInStikDebug(delegate: LCAppModelDelegate? = nil) async {
         guard BuiltInStikDebugAppInfo.isEmbedded else {
-            // Fallback: open system/external StikDebug via URL
             _ = await LCStikIntegration.shared.openEnableJIT()
             return
         }
@@ -544,3 +540,4 @@ extension LCUtils {
             print("openBuiltInStikDebug: \(error)")
         }
     }
+}
