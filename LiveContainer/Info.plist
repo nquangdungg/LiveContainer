@@ -71,6 +71,8 @@
 	<string>public.app-category.education</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
+		<string>stikdebug</string>
+		<string>stikjit</string>
 		<string>sidestore</string>
 		<string>livecontainer</string>
 		<string>livecontainer2</string>

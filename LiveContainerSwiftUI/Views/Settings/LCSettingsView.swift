@@ -375,6 +375,8 @@ struct LCSettingsView: View {
                 
                 LCAppLockSettingsSection()
 
+                LCStikSettingsSection()
+
                 Section {
                     if developerMode.isEnabled {
                         HStack {
