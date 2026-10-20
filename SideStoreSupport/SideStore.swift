@@ -8,6 +8,7 @@
 import Foundation
 import AppIntents
 import UserNotifications
+import Darwin
 
 @available(iOS 17.0, *)
 func performIntentRefresh(identifier: String, mangledTypeName: String, intentProgress: Progress) async throws {
@@ -178,11 +179,16 @@ class RefreshHandler: NSObject, RefreshServer {
             
             try await withUnsafeThrowingContinuation { c in
                 self.launchContinuation = c
-                DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
-                    if let c = self.launchContinuation {
-                        c.resume(throwing: NSError(domain: "SideStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "Built-in SideStore failed to start in reasonable time"]))
+                // Capture process id only — NSExtension is not Sendable; avoid capturing it in the @Sendable timer closure.
+                let pidToKill = ext.pid(forRequestIdentifier: uuid)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
+                    guard let self else { return }
+                    if let cont = self.launchContinuation {
+                        cont.resume(throwing: NSError(domain: "SideStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "Built-in SideStore failed to start in reasonable time"]))
                         self.launchContinuation = nil
-                        ext._kill(9)
+                        if pidToKill > 0 {
+                            kill(pidToKill, SIGKILL)
+                        }
                     }
                 }
             }
