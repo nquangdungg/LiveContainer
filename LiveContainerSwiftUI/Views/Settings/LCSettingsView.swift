@@ -90,7 +90,7 @@ struct LCSettingsView: View {
         if let short = short, let build = build, short != build {
             return "\(short) (\(build))"
         }
-        return short ?? build ?? "4.1.8"
+        return short ?? build ?? "0.0.0"
     }
     
     var body: some View {

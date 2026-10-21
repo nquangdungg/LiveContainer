@@ -2,8 +2,7 @@
 //  LCStatusBarManager.m
 //  LiveContainer
 //
-//  Double-tap status bar → close frontmost guest / return to LiveContainer.
-//  Uses delayed single-tap so double-tap is reliable across iOS versions.
+//  Double-tap near the clock (leading status-bar region) → close guest / return to LC.
 //
 
 #import "LCStatusBarManager.h"
@@ -15,10 +14,9 @@
 - (UIViewController *)_viewDelegate;
 @end
 
-// Prefer slightly longer than system double-tap (~0.3–0.4s); 0.5s is forgiving.
-static const NSTimeInterval kLCStatusBarDoubleTapWindow = 0.50;
+// ~system double-tap; slightly under 0.5s so it tracks clock taps naturally
+static const NSTimeInterval kLCStatusBarDoubleTapWindow = 0.40;
 static NSTimeInterval LCPendingTapTime = 0;
-static UIAction *LCPendingTapAction = nil;
 static dispatch_block_t LCPendingSingleTapBlock = nil;
 
 static BOOL LCDoubleTapExitEnabled(void) {
@@ -36,45 +34,70 @@ static BOOL LCDoubleTapExitEnabled(void) {
     if ([defaults objectForKey:@"LCDoubleTapStatusBarToExit"] != nil) {
         return [defaults boolForKey:@"LCDoubleTapStatusBarToExit"];
     }
-    return YES; // default on
+    return YES;
+}
+
+/// Prefer the clock side of the status bar (leading ~48% in LTR, trailing in RTL).
+static BOOL LCTapIsOnClockSide(UIAction *action) {
+    id sender = nil;
+    if ([action respondsToSelector:@selector(sender)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        sender = [action performSelector:@selector(sender)];
+#pragma clang diagnostic pop
+    }
+    if (![sender isKindOfClass:[UIView class]]) {
+        // No geometry — treat as clock-side so double-tap still works.
+        return YES;
+    }
+    UIView *view = (UIView *)sender;
+    CGRect frame = [view convertRect:view.bounds toView:nil];
+    CGFloat midX = CGRectGetMidX(frame);
+    CGFloat width = CGRectGetWidth(UIScreen.mainScreen.bounds);
+    if (width < 1) return YES;
+
+    BOOL rtl = NO;
+    if (@available(iOS 13.0, *)) {
+        rtl = (view.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft);
+    }
+    if (rtl) {
+        return midX >= width * 0.52;
+    }
+    // Clock sits under the left status region; keep a little margin past the island edge.
+    return midX <= width * 0.48;
 }
 
 @implementation LCStatusBarManager
 
 - (void)handleTapAction:(UIAction *)action {
-    if (!LCDoubleTapExitEnabled()) {
+    if (!LCDoubleTapExitEnabled() || !LCTapIsOnClockSide(action)) {
         [self lc_forwardSingleTap:action];
         return;
     }
 
     NSTimeInterval now = CFAbsoluteTimeGetCurrent();
 
-    // Second tap within window → double-tap exit
     if (LCPendingSingleTapBlock != nil &&
         LCPendingTapTime > 0 &&
         (now - LCPendingTapTime) <= kLCStatusBarDoubleTapWindow) {
         dispatch_block_cancel(LCPendingSingleTapBlock);
         LCPendingSingleTapBlock = nil;
-        LCPendingTapAction = nil;
         LCPendingTapTime = 0;
         [self lc_handleDoubleTapExit];
         return;
     }
 
-    // Cancel any previous pending single-tap
     if (LCPendingSingleTapBlock) {
         dispatch_block_cancel(LCPendingSingleTapBlock);
         LCPendingSingleTapBlock = nil;
     }
 
     LCPendingTapTime = now;
-    LCPendingTapAction = action;
     __weak typeof(self) weakSelf = self;
     UIAction *captured = action;
     LCPendingSingleTapBlock = dispatch_block_create(0, ^{
         LCPendingSingleTapBlock = nil;
         LCPendingTapTime = 0;
-        LCPendingTapAction = nil;
         [weakSelf lc_forwardSingleTap:captured];
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kLCStatusBarDoubleTapWindow * NSEC_PER_SEC)),
@@ -106,7 +129,6 @@ static BOOL LCDoubleTapExitEnabled(void) {
 
     VirtualWindowsHostView *host = MultitaskDockManager.shared.windowHostingView;
     if (host) {
-        // Frontmost visible window
         for (UIView *sub in [host.subviews reverseObjectEnumerator]) {
             if (sub.hidden || sub.alpha < 0.05) continue;
             id decorated = [sub _viewDelegate];

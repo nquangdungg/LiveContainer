@@ -136,6 +136,8 @@ jobs:
           MAX="${{ github.event.inputs.max_build_attempts }}"
           if [ -z "$MAX" ] || [ "$MAX" -lt 1 ]; then MAX=5; fi
           chmod +x .github/build_github.sh
+          export LC_BUILD_VERSION="${{ steps.version.outputs.version }}"
+          echo "LC_BUILD_VERSION=$LC_BUILD_VERSION"
 
           ATTEMPT=1
           while [ "$ATTEMPT" -le "$MAX" ]; do

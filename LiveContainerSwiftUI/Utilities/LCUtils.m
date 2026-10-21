@@ -452,9 +452,18 @@
 }
 
 + (NSString *)getVersionInfo {
-    return [NSString stringWithFormat:@"Version %@-%@",
-            NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"],
-            NSBundle.mainBundle.infoDictionary[@"LCVersionInfo"]];
+    NSDictionary *info = NSBundle.mainBundle.infoDictionary;
+    NSString *shortVer = info[@"CFBundleShortVersionString"] ?: @"0";
+    NSString *lcInfo = info[@"LCVersionInfo"];
+    // Prefer LCVersionInfo when CI stamped it; avoid "Version x-(null)"
+    if ([lcInfo isKindOfClass:[NSString class]] && lcInfo.length > 0 && ![lcInfo isEqualToString:shortVer]) {
+        return [NSString stringWithFormat:@"Version %@ (%@)", shortVer, lcInfo];
+    }
+    NSString *build = info[@"CFBundleVersion"];
+    if ([build isKindOfClass:[NSString class]] && build.length > 0 && ![build isEqualToString:shortVer]) {
+        return [NSString stringWithFormat:@"Version %@ (%@)", shortVer, build];
+    }
+    return [NSString stringWithFormat:@"Version %@", shortVer];
 }
 
 + (NSData*)bookmarkForURL:(NSURL*) url {

@@ -36,6 +36,39 @@ if [ ! -d "Payload/LiveContainer.app" ]; then
   exit 1
 fi
 
+# ---------- Stamp marketing version from CI (single source of truth) ----------
+# Prefer LC_BUILD_VERSION (workflow), then VERSION file, then existing plist.
+stamp_app_version() {
+  local ver="${LC_BUILD_VERSION:-}"
+  if [ -z "$ver" ] && [ -f VERSION ]; then
+    ver=$(tr -d '[:space:]' < VERSION)
+  fi
+  if [ -z "$ver" ]; then
+    ver=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Payload/LiveContainer.app/Info.plist 2>/dev/null || true)
+  fi
+  if [ -z "$ver" ]; then
+    echo "WARNING: No version to stamp"
+    return 0
+  fi
+  echo "==> Stamping app version: $ver"
+  local plist="Payload/LiveContainer.app/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $ver" "$plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $ver" "$plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $ver" "$plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $ver" "$plist"
+  # Used by getVersionInfo — always matches release tag
+  /usr/libexec/PlistBuddy -c "Set :LCVersionInfo $ver" "$plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :LCVersionInfo string $ver" "$plist"
+  # Stamp embedded appex Info.plists so Settings / about stay consistent
+  find Payload/LiveContainer.app -name Info.plist | while read -r ip; do
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $ver" "$ip" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $ver" "$ip" 2>/dev/null || true
+  done
+  echo "$ver" > build_version_stamped.txt
+}
+
+stamp_app_version
+
 # ---------- Standalone IPA (always) ----------
 echo "==> Building standalone ${SCHEME}.ipa"
 

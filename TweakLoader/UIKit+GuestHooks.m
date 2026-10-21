@@ -779,8 +779,7 @@ static LCControlAppURLHandling LCHandleControlAppURL(NSURL *url, NSString** modi
 @end
 
 // =============================================================================
-// LiveContainer Extended: Double-tap status bar → return to LiveContainer
-// Guest process — method swizzle with delayed single-tap (reliable double-tap)
+// LiveContainer Extended: Double-tap near clock → return to LiveContainer
 // =============================================================================
 
 @interface UIStatusBarManager (LCGuestDoubleTap)
@@ -792,7 +791,31 @@ static LCControlAppURLHandling LCHandleControlAppURL(NSURL *url, NSString** modi
 
 static NSTimeInterval LCGuestPendingTapTime = 0;
 static dispatch_block_t LCGuestPendingSingleTapBlock = nil;
-static const NSTimeInterval kLCGuestDoubleTapWindow = 0.50;
+static const NSTimeInterval kLCGuestDoubleTapWindow = 0.40;
+
+static BOOL LCGuestTapIsOnClockSide(UIAction *action) {
+    id sender = nil;
+    if ([action respondsToSelector:@selector(sender)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        sender = [action performSelector:@selector(sender)];
+#pragma clang diagnostic pop
+    }
+    if (![sender isKindOfClass:[UIView class]]) {
+        return YES;
+    }
+    UIView *view = (UIView *)sender;
+    CGRect frame = [view convertRect:view.bounds toView:nil];
+    CGFloat midX = CGRectGetMidX(frame);
+    CGFloat width = CGRectGetWidth(UIScreen.mainScreen.bounds);
+    if (width < 1) return YES;
+    BOOL rtl = NO;
+    if (@available(iOS 13.0, *)) {
+        rtl = (view.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft);
+    }
+    if (rtl) return midX >= width * 0.52;
+    return midX <= width * 0.48;
+}
 
 - (void)lc_handleTapAction:(UIAction *)action {
     BOOL enabled = YES;
@@ -811,8 +834,8 @@ static const NSTimeInterval kLCGuestDoubleTapWindow = 0.50;
         enabled = [defs boolForKey:@"LCDoubleTapStatusBarToExit"];
     }
 
-    if (!enabled) {
-        [self lc_handleTapAction:action]; // original after swizzle
+    if (!enabled || !LCGuestTapIsOnClockSide(action)) {
+        [self lc_handleTapAction:action];
         return;
     }
 
@@ -845,7 +868,7 @@ static const NSTimeInterval kLCGuestDoubleTapWindow = 0.50;
     LCGuestPendingSingleTapBlock = dispatch_block_create(0, ^{
         LCGuestPendingSingleTapBlock = nil;
         LCGuestPendingTapTime = 0;
-        [weakSelf lc_handleTapAction:captured]; // original single-tap
+        [weakSelf lc_handleTapAction:captured];
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kLCGuestDoubleTapWindow * NSEC_PER_SEC)),
                    dispatch_get_main_queue(),
@@ -858,7 +881,6 @@ __attribute__((constructor))
 static void LCGuestDoubleTapStatusBarInit(void) {
     if (!NSUserDefaults.lcGuestAppId) return;
 
-    // handleTapAction: exists from iOS 13; status bar manager path used widely on 15+
     if (@available(iOS 15.0, *)) {
         Class cls = NSClassFromString(@"UIStatusBarManager");
         if (!cls) return;
